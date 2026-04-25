@@ -31,7 +31,16 @@
   <div id="status">대기중</div>
   <div id="board"></div>
 </section>
-
+  
+<div id="promotionModal" class="hidden">
+  <div class="promoBox">
+    <h3>승급 선택</h3>
+    <button onclick="Game.choosePromotion('q')">퀸</button>
+    <button onclick="Game.choosePromotion('r')">룩</button>
+    <button onclick="Game.choosePromotion('b')">비숍</button>
+    <button onclick="Game.choosePromotion('n')">나이트</button>
+  </div>
+</div>
 <script src="app.js"></script>
 </body>
 </html>
