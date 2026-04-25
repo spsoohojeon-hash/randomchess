@@ -11,6 +11,7 @@ const Game = (() => {
   let roomCode = null;
   let enPassant = null;
   let dragFrom = null;
+  let promotionResolve = null;
 
   let moved = {
     wk:false, wrA:false, wrH:false,
