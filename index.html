@@ -2,36 +2,73 @@
 <html>
 <head>
   <title>Chess Test</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <style>
+    body { font-family: sans-serif; padding: 20px; background: #111; color: white; }
+    button { font-size: 20px; padding: 15px; margin: 8px 0; width: 100%; }
+    #log { background: #222; padding: 15px; margin-top: 20px; min-height: 150px; white-space: pre-wrap; }
+  </style>
 </head>
 <body>
   <h1>체스 테스트</h1>
+
   <button onclick="join()">방 입장</button>
   <button onclick="move()">움직임 보내기</button>
 
+  <div id="log">로그 대기중...</div>
+
   <script>
+    const logBox = document.getElementById("log");
+
+    function log(text) {
+      logBox.textContent += "\n" + text;
+    }
+
     const ws = new WebSocket("wss://randomchess.onrender.com");
 
     ws.onopen = () => {
-      console.log("연결됨");
+      log("✅ 서버 연결됨");
+    };
+
+    ws.onerror = () => {
+      log("❌ WebSocket 에러");
+    };
+
+    ws.onclose = () => {
+      log("⚠️ 서버 연결 끊김");
     };
 
     ws.onmessage = (e) => {
-      console.log("받음:", e.data);
+      log("📩 받음: " + e.data);
     };
 
     function join() {
+      if (ws.readyState !== WebSocket.OPEN) {
+        log("아직 서버 연결 안 됨");
+        return;
+      }
+
       ws.send(JSON.stringify({
         type: "join",
         roomId: "room1"
       }));
+
+      log("🚪 방 입장 보냄");
     }
 
     function move() {
+      if (ws.readyState !== WebSocket.OPEN) {
+        log("아직 서버 연결 안 됨");
+        return;
+      }
+
       ws.send(JSON.stringify({
         type: "move",
         from: "e2",
         to: "e4"
       }));
+
+      log("♟️ 움직임 보냄: e2 → e4");
     }
   </script>
 </body>
