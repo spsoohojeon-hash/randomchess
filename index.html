@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <title>Chess Test</title>
+</head>
+<body>
+  <h1>체스 테스트</h1>
+  <button onclick="join()">방 입장</button>
+  <button onclick="move()">움직임 보내기</button>
+
+  <script>
+    const ws = new WebSocket("wss://randomchess.onrender.com");
+
+    ws.onopen = () => {
+      console.log("연결됨");
+    };
+
+    ws.onmessage = (e) => {
+      console.log("받음:", e.data);
+    };
+
+    function join() {
+      ws.send(JSON.stringify({
+        type: "join",
+        roomId: "room1"
+      }));
+    }
+
+    function move() {
+      ws.send(JSON.stringify({
+        type: "move",
+        from: "e2",
+        to: "e4"
+      }));
+    }
+  </script>
+</body>
+</html>
