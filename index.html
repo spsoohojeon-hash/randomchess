@@ -1,74 +1,195 @@
 <!DOCTYPE html>
 <html>
 <head>
-  <title>Chess Test</title>
+  <title>Random Chess</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <style>
-    body { font-family: sans-serif; padding: 20px; background: #111; color: white; }
-    button { font-size: 20px; padding: 15px; margin: 8px 0; width: 100%; }
-    #log { background: #222; padding: 15px; margin-top: 20px; min-height: 150px; white-space: pre-wrap; }
+    body { margin: 0; font-family: sans-serif; background: #111; color: white; text-align: center; }
+    h1 { margin: 12px; }
+    #info { margin: 10px; font-size: 17px; }
+    #board {
+      width: 96vw;
+      max-width: 480px;
+      margin: 10px auto;
+      display: grid;
+      grid-template-columns: repeat(8, 1fr);
+      border: 3px solid #444;
+    }
+    .cell {
+      aspect-ratio: 1 / 1;
+      font-size: 8vw;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      user-select: none;
+    }
+    .white { background: #eee; color: black; }
+    .black { background: #777; color: black; }
+    .selected { outline: 4px solid yellow; z-index: 2; }
+    input, button {
+      padding: 10px;
+      margin: 4px;
+      font-size: 16px;
+      border: none;
+      border-radius: 8px;
+    }
+    #log {
+      width: 92vw;
+      max-width: 480px;
+      margin: 10px auto;
+      padding: 10px;
+      background: #222;
+      text-align: left;
+      min-height: 90px;
+      white-space: pre-wrap;
+      font-size: 14px;
+    }
   </style>
 </head>
 <body>
-  <h1>체스 테스트</h1>
+  <h1>♟ Random Chess</h1>
 
-  <button onclick="join()">방 입장</button>
-  <button onclick="move()">움직임 보내기</button>
+  <div>
+    <input id="room" value="room1">
+    <button onclick="join()">방 입장</button>
+    <button onclick="resetGame()">리셋</button>
+  </div>
 
-  <div id="log">로그 대기중...</div>
+  <div id="info">서버 연결 중...</div>
+  <div id="board"></div>
+  <div id="log">로그</div>
 
   <script>
-    const logBox = document.getElementById("log");
-
-    function log(text) {
-      logBox.textContent += "\n" + text;
-    }
-
     const ws = new WebSocket("wss://randomchess.onrender.com");
 
+    let myColor = null;
+    let turn = "white";
+    let board = [];
+    let selected = null;
+
+    const pieces = {
+      wp:"♙", wr:"♖", wn:"♘", wb:"♗", wq:"♕", wk:"♔",
+      bp:"♟", br:"♜", bn:"♞", bb:"♝", bq:"♛", bk:"♚"
+    };
+
+    function log(text) {
+      document.getElementById("log").textContent += "\n" + text;
+    }
+
     ws.onopen = () => {
-      log("✅ 서버 연결됨");
+      document.getElementById("info").textContent = "✅ 서버 연결됨";
     };
 
-    ws.onerror = () => {
-      log("❌ WebSocket 에러");
+    ws.onmessage = e => {
+      const data = JSON.parse(e.data);
+
+      if (data.type === "start") {
+        myColor = data.color;
+        board = data.board;
+        turn = data.turn;
+        log("내 색: " + myColor);
+        render();
+      }
+
+      if (data.type === "update") {
+        board = data.board;
+        turn = data.turn;
+        selected = null;
+        render();
+      }
+
+      if (data.type === "gameover") {
+        board = data.board;
+        render();
+        alert("게임 끝! 승자: " + data.winner);
+        log("🏆 승자: " + data.winner);
+      }
+
+      if (data.type === "error") log("❌ " + data.message);
+      if (data.type === "full") alert("방이 가득 참");
+      if (data.type === "info") log("ℹ️ " + data.message);
     };
 
-    ws.onclose = () => {
-      log("⚠️ 서버 연결 끊김");
-    };
-
-    ws.onmessage = (e) => {
-      log("📩 받음: " + e.data);
-    };
+    ws.onerror = () => log("❌ 서버 에러");
+    ws.onclose = () => log("⚠️ 서버 연결 끊김");
 
     function join() {
-      if (ws.readyState !== WebSocket.OPEN) {
-        log("아직 서버 연결 안 됨");
+      const roomId = document.getElementById("room").value || "room1";
+      ws.send(JSON.stringify({ type: "join", roomId }));
+      log("방 입장 요청: " + roomId);
+    }
+
+    function resetGame() {
+      ws.send(JSON.stringify({ type: "reset" }));
+    }
+
+    function render() {
+      const boardDiv = document.getElementById("board");
+      boardDiv.innerHTML = "";
+
+      document.getElementById("info").textContent =
+        "내 색: " + myColor + " | 현재 턴: " + turn;
+
+      for (let r = 0; r < 8; r++) {
+        for (let c = 0; c < 8; c++) {
+          const cell = document.createElement("div");
+          cell.className = "cell " + ((r + c) % 2 === 0 ? "white" : "black");
+
+          if (selected && selected.r === r && selected.c === c) {
+            cell.classList.add("selected");
+          }
+
+          const piece = board[r][c];
+          cell.textContent = pieces[piece] || "";
+          cell.onclick = () => clickCell(r, c);
+          boardDiv.appendChild(cell);
+        }
+      }
+    }
+
+    function clickCell(r, c) {
+      if (!myColor) {
+        alert("먼저 방 입장 눌러라");
         return;
       }
 
-      ws.send(JSON.stringify({
-        type: "join",
-        roomId: "room1"
-      }));
-
-      log("🚪 방 입장 보냄");
-    }
-
-    function move() {
-      if (ws.readyState !== WebSocket.OPEN) {
-        log("아직 서버 연결 안 됨");
+      if (turn !== myColor) {
+        log("네 차례 아님");
         return;
+      }
+
+      const piece = board[r][c];
+
+      if (!selected) {
+        if (!piece) return;
+
+        if (piece[0] !== myColor[0]) {
+          log("내 말이 아님");
+          return;
+        }
+
+        selected = { r, c };
+        render();
+        return;
+      }
+
+      let promoteTo = null;
+      const moving = board[selected.r][selected.c];
+
+      if (moving && moving[1] === "p" && (r === 0 || r === 7)) {
+        promoteTo = prompt("승급 선택: q=퀸, r=룩, b=비숍, n=나이트", "q");
+        if (!["q", "r", "b", "n"].includes(promoteTo)) promoteTo = "q";
       }
 
       ws.send(JSON.stringify({
         type: "move",
-        from: "e2",
-        to: "e4"
+        from: selected,
+        to: { r, c },
+        promoteTo
       }));
 
-      log("♟️ 움직임 보냄: e2 → e4");
+      selected = null;
+      render();
     }
   </script>
 </body>
