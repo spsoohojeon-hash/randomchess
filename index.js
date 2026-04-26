@@ -4,6 +4,25 @@ import { WebSocketServer } from "ws";
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 const rooms = {};
+const CARD_POOL = [
+  "necro",
+  "wildHorse",
+  "spaceTravel",
+  "doubleMove",
+  "equality",
+  "reactionary",
+  "exorcism",
+  "kingReturn"
+];
+
+function drawCards() {
+  const shuffled = [...CARD_POOL].sort(() => Math.random() - 0.5);
+
+  return {
+    white: shuffled[0],
+    black: shuffled[1]
+  };
+}
 
 function createBoard() {
   return [
@@ -20,6 +39,7 @@ function createRoom() {
   return {
     players: [],
     board: createBoard(),
+    cards:drawCards(),
     turn: "white",
     over: false,
     enPassant: null,
@@ -134,7 +154,8 @@ if (data.type === "join") {
       board: room.board,
       turn: room.turn,
       enPassant: room.enPassant,
-      moved: room.moved
+      moved: room.moved,
+      card: room.cards[player.color]
     });
   });
 }
