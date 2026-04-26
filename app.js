@@ -1,4 +1,4 @@
-import {
+uimport {
   createCardState,
   useCard,
   getWildHorseMoves,
@@ -294,6 +294,43 @@ const Game = (() => {
   }
 
   function clickCell(r, c) {
+    if (cardState.activeMode === "necroPlace") {
+  if (board[r][c]) {
+    alert("빈칸만 가능");
+    return;
+  }
+
+  const kingPos = findMyKing();
+
+  if (!kingPos) {
+    alert("킹 없음");
+    return;
+  }
+
+  const near =
+    Math.abs(kingPos.r - r) <= 1 &&
+    Math.abs(kingPos.c - c) <= 1;
+
+  if (!near) {
+    alert("킹 주변만 가능");
+    return;
+  }
+
+  const color = turn[0];
+  const type = cardState.necroSelectedPiece[1];
+
+  board[r][c] = color + type;
+
+  cardState.necroUsed = true;
+  cardState.necroSelectedPiece = null;
+  cardState.necroCapturedPieces = [];
+  cardState.activeMode = null;
+
+  turn = turn === "white" ? "black" : "white";
+
+  render();
+  return;
+    }
     if (cardState.activeMode === "exorcism") {
       const piece = board[r]?.[c];
 
