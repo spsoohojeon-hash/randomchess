@@ -11,7 +11,7 @@
 <section id="menu" class="screen">
   <div class="logo">♟</div>
   <h1>랜덤능력체스</h1>
-  <p>체크/체크메이트 없이 킹을 잡으면 승리</p>
+  <p>체크 없이 킹을 잡으면 승리</p>
 
   <button class="bigBtn" onclick="Game.startLocal()">로컬 2인 플레이</button>
 
@@ -31,7 +31,7 @@
   <div id="status">대기중</div>
   <div id="board"></div>
 </section>
-  
+
 <div id="promotionModal" class="hidden">
   <div class="promoBox">
     <h3>승급 선택</h3>
@@ -41,6 +41,7 @@
     <button onclick="Game.choosePromotion('n')">나이트</button>
   </div>
 </div>
+
 <script src="app.js"></script>
 </body>
 </html>
