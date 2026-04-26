@@ -224,3 +224,24 @@ img {
   margin-bottom: 10px;
   line-height: 1.4;
 }
+.cardBox {
+  margin: 10px auto;
+  max-width: 420px;
+  padding: 14px;
+  border: 2px solid #c29273;
+  border-radius: 16px;
+  background: #2b2433;
+}
+
+.cardTitle {
+  font-size: 20px;
+  font-weight: 900;
+  margin-bottom: 8px;
+}
+
+.cardDesc {
+  font-size: 14px;
+  color: #ddd;
+  margin-bottom: 10px;
+  line-height: 1.4;
+}
