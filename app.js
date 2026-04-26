@@ -54,6 +54,17 @@ const Game = (() => {
     moved = { wk:false, wrA:false, wrH:false, bk:false, brA:false, brH:false };
     cardState = createCardState();
   }
+  function syncCardUpdate() {
+  if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: "cardUpdate",
+      board,
+      turn,
+      enPassant,
+      moved
+    }));
+  }
+  }
 
   function showGame() {
     document.getElementById("menu").classList.add("hidden");
