@@ -151,10 +151,10 @@ img {
 
 .dragGhost {
   position: fixed;
-  width: 58px;
-  height: 58px;
+  width: 70px;
+  height: 70px;
   pointer-events: none;
-  z-index: 999;
+  z-index: 9999;
   transform: translate(-50%, -50%);
 }
 
