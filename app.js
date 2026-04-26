@@ -396,6 +396,7 @@ return;
           board[b.r][b.c] = temp;
 
           turn = turn === "white" ? "black" : "white";
+          syncCardUpdate();
         } else {
           alert("같은 줄에서 2칸 떨어진 기물만 가능");
         }
