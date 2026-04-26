@@ -47,6 +47,10 @@ function createRoom() {
     moved: {
       wk:false, wrA:false, wrH:false,
       bk:false, brA:false, brH:false
+    },
+    doubleMove: {
+  white: 0,
+  black: 0
     }
   };
 }
