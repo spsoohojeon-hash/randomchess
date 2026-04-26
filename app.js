@@ -99,14 +99,23 @@ const Game = (() => {
 
     ws = new WebSocket(SERVER);
 
-    ws.onopen = () => {
-      ws.send(JSON.stringify({
-        type: "join",
-        roomId: roomCode
-      }));
-    };
+ws.onopen = () => {
+  alert("서버 연결 성공");
+  ws.send(JSON.stringify({
+    type: "join",
+    roomId: roomCode
+  }));
+};
 
-    ws.onmessage = e => {
+ws.onerror = () => {
+  alert("서버 연결 에러");
+};
+
+ws.onclose = () => {
+  alert("서버 연결 끊김");
+};
+
+ws.onmessage = e => {
       const data = JSON.parse(e.data);
 
       if (data.type === "waiting") {
