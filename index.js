@@ -4,6 +4,7 @@ import { WebSocketServer } from "ws";
 const server = http.createServer();
 const wss = new WebSocketServer({ server });
 const rooms = {};
+
 const CARD_POOL = [
   "necro",
   "wildHorse",
@@ -39,39 +40,53 @@ function createRoom() {
   return {
     players: [],
     board: createBoard(),
-    cards:drawCards(),
+    cards: drawCards(),
     turn: "white",
     over: false,
     enPassant: null,
-    moved: { wk:false, wrA:false, wrH:false, bk:false, brA:false, brH:false }
+    moved: {
+      wk:false, wrA:false, wrH:false,
+      bk:false, brA:false, brH:false
+    }
   };
 }
 
-function send(ws, data) { ws.send(JSON.stringify(data)); }
-function broadcast(room, data) { room.players.forEach(p => send(p.ws, data)); }
+function send(ws, data) {
+  ws.send(JSON.stringify(data));
+}
+
+function broadcast(room, data) {
+  room.players.forEach(p => send(p.ws, data));
+}
 
 function clearPath(board, from, to) {
   const sr = Math.sign(to.r - from.r);
   const sc = Math.sign(to.c - from.c);
-  let r = from.r + sr, c = from.c + sc;
+  let r = from.r + sr;
+  let c = from.c + sc;
 
   while (r !== to.r || c !== to.c) {
     if (board[r][c]) return false;
-    r += sr; c += sc;
+    r += sr;
+    c += sc;
   }
+
   return true;
 }
 
 function validMove(room, from, to, color) {
   const board = room.board;
   const piece = board[from.r]?.[from.c];
+
   if (!piece || piece[0] !== color[0]) return false;
 
   const target = board[to.r]?.[to.c];
   if (target && target[0] === color[0]) return false;
 
-  const dr = to.r - from.r, dc = to.c - from.c;
-  const ar = Math.abs(dr), ac = Math.abs(dc);
+  const dr = to.r - from.r;
+  const dc = to.c - from.c;
+  const ar = Math.abs(dr);
+  const ac = Math.abs(dc);
   const type = piece[1];
 
   if (type === "p") {
@@ -79,28 +94,99 @@ function validMove(room, from, to, color) {
     const start = color === "white" ? 6 : 1;
 
     if (dc === 0 && !target && dr === dir) return "normal";
-    if (dc === 0 && !target && from.r === start && dr === dir * 2 && !board[from.r + dir][from.c]) return "doublePawn";
+
+    if (
+      dc === 0 &&
+      !target &&
+      from.r === start &&
+      dr === dir * 2 &&
+      !board[from.r + dir][from.c]
+    ) {
+      return "doublePawn";
+    }
+
     if (ac === 1 && dr === dir && target) return "normal";
-    if (ac === 1 && dr === dir && !target && room.enPassant?.r === to.r && room.enPassant?.c === to.c) return "enPassant";
+
+    if (
+      ac === 1 &&
+      dr === dir &&
+      !target &&
+      room.enPassant?.r === to.r &&
+      room.enPassant?.c === to.c
+    ) {
+      return "enPassant";
+    }
+
     return false;
   }
 
-  if (type === "r") return (dr === 0 || dc === 0) && clearPath(board, from, to) ? "normal" : false;
-  if (type === "b") return ar === ac && clearPath(board, from, to) ? "normal" : false;
-  if (type === "q") return (dr === 0 || dc === 0 || ar === ac) && clearPath(board, from, to) ? "normal" : false;
-  if (type === "n") return ((ar === 2 && ac === 1) || (ar === 1 && ac === 2)) ? "normal" : false;
+  if (type === "r") {
+    return (dr === 0 || dc === 0) && clearPath(board, from, to) ? "normal" : false;
+  }
+
+  if (type === "b") {
+    return ar === ac && clearPath(board, from, to) ? "normal" : false;
+  }
+
+  if (type === "q") {
+    return (dr === 0 || dc === 0 || ar === ac) && clearPath(board, from, to) ? "normal" : false;
+  }
+
+  if (type === "n") {
+    return ((ar === 2 && ac === 1) || (ar === 1 && ac === 2)) ? "normal" : false;
+  }
 
   if (type === "k") {
     if (ar <= 1 && ac <= 1) return "normal";
 
     if (color === "white" && from.r === 7 && from.c === 4 && dr === 0) {
-      if (dc === 2 && !room.moved.wk && !room.moved.wrH && board[7][5] === "" && board[7][6] === "" && board[7][7] === "wr") return "castleKing";
-      if (dc === -2 && !room.moved.wk && !room.moved.wrA && board[7][1] === "" && board[7][2] === "" && board[7][3] === "" && board[7][0] === "wr") return "castleQueen";
+      if (
+        dc === 2 &&
+        !room.moved.wk &&
+        !room.moved.wrH &&
+        board[7][5] === "" &&
+        board[7][6] === "" &&
+        board[7][7] === "wr"
+      ) {
+        return "castleKing";
+      }
+
+      if (
+        dc === -2 &&
+        !room.moved.wk &&
+        !room.moved.wrA &&
+        board[7][1] === "" &&
+        board[7][2] === "" &&
+        board[7][3] === "" &&
+        board[7][0] === "wr"
+      ) {
+        return "castleQueen";
+      }
     }
 
     if (color === "black" && from.r === 0 && from.c === 4 && dr === 0) {
-      if (dc === 2 && !room.moved.bk && !room.moved.brH && board[0][5] === "" && board[0][6] === "" && board[0][7] === "br") return "castleKing";
-      if (dc === -2 && !room.moved.bk && !room.moved.brA && board[0][1] === "" && board[0][2] === "" && board[0][3] === "" && board[0][0] === "br") return "castleQueen";
+      if (
+        dc === 2 &&
+        !room.moved.bk &&
+        !room.moved.brH &&
+        board[0][5] === "" &&
+        board[0][6] === "" &&
+        board[0][7] === "br"
+      ) {
+        return "castleKing";
+      }
+
+      if (
+        dc === -2 &&
+        !room.moved.bk &&
+        !room.moved.brA &&
+        board[0][1] === "" &&
+        board[0][2] === "" &&
+        board[0][3] === "" &&
+        board[0][0] === "br"
+      ) {
+        return "castleQueen";
+      }
     }
 
     return false;
@@ -112,6 +198,7 @@ function validMove(room, from, to, color) {
 function updateMoved(room, piece, from) {
   if (piece === "wk") room.moved.wk = true;
   if (piece === "bk") room.moved.bk = true;
+
   if (piece === "wr" && from.r === 7 && from.c === 0) room.moved.wrA = true;
   if (piece === "wr" && from.r === 7 && from.c === 7) room.moved.wrH = true;
   if (piece === "br" && from.r === 0 && from.c === 0) room.moved.brA = true;
@@ -125,47 +212,50 @@ wss.on("connection", ws => {
   ws.on("message", msg => {
     const data = JSON.parse(msg.toString());
 
-if (data.type === "join") {
-  roomId = data.roomId || "room1";
+    if (data.type === "join") {
+      roomId = data.roomId || "room1";
 
-  if (!rooms[roomId]) rooms[roomId] = createRoom();
-  const room = rooms[roomId];
+      if (!rooms[roomId]) rooms[roomId] = createRoom();
+      const room = rooms[roomId];
 
-  if (room.players.length >= 2) {
-    send(ws, { type:"full" });
-    return;
-  }
+      if (room.players.length >= 2) {
+        send(ws, { type:"full" });
+        return;
+      }
 
-  color = room.players.length === 0 ? "white" : "black";
-  room.players.push({ ws, color });
+      color = room.players.length === 0 ? "white" : "black";
+      room.players.push({ ws, color });
 
-  if (room.players.length === 1) {
-    send(ws, {
-      type: "waiting",
-      message: "매칭 찾는 중..."
-    });
-    return;
-  }
+      if (room.players.length === 1) {
+        send(ws, {
+          type: "waiting",
+          message: "매칭 찾는 중..."
+        });
+        return;
+      }
 
-  room.players.forEach(player => {
-    send(player.ws, {
-      type: "start",
-      color: player.color,
-      board: room.board,
-      turn: room.turn,
-      enPassant: room.enPassant,
-      moved: room.moved,
-      card: room.cards[player.color]
-    });
-  });
-}
+      room.players.forEach(player => {
+        send(player.ws, {
+          type: "start",
+          color: player.color,
+          board: room.board,
+          turn: room.turn,
+          enPassant: room.enPassant,
+          moved: room.moved,
+          card: room.cards[player.color]
+        });
+      });
+    }
 
     if (data.type === "move") {
       const room = rooms[roomId];
       if (!room || room.over) return;
 
       if (room.turn !== color) {
-        send(ws, { type:"error", message:"네 차례가 아님" });
+        send(ws, {
+          type:"error",
+          message:"네 차례가 아님"
+        });
         return;
       }
 
@@ -173,7 +263,10 @@ if (data.type === "join") {
       const moveType = validMove(room, from, to, color);
 
       if (!moveType) {
-        send(ws, { type:"error", message:"불가능한 이동" });
+        send(ws, {
+          type:"error",
+          message:"불가능한 이동"
+        });
         return;
       }
 
@@ -195,7 +288,10 @@ if (data.type === "join") {
 
       if (moveType === "doublePawn") {
         const dir = color === "white" ? -1 : 1;
-        room.enPassant = { r: from.r + dir, c: from.c };
+        room.enPassant = {
+          r: from.r + dir,
+          c: from.c
+        };
       }
 
       if (moveType === "castleKing") {
@@ -218,7 +314,13 @@ if (data.type === "join") {
 
       if (captured && captured[1] === "k") {
         room.over = true;
-        broadcast(room, { type:"gameover", winner:color, board });
+
+        broadcast(room, {
+          type:"gameover",
+          winner: color,
+          board
+        });
+
         return;
       }
 
@@ -233,22 +335,18 @@ if (data.type === "join") {
       });
     }
 
-    if (data.type === "reset") {
+    if (data.type === "resign") {
       const room = rooms[roomId];
-      if (!room) return;
+      if (!room || room.over) return;
 
-      room.board = createBoard();
-      room.turn = "white";
-      room.over = false;
-      room.enPassant = null;
-      room.moved = { wk:false, wrA:false, wrH:false, bk:false, brA:false, brH:false };
+      room.over = true;
+
+      const winner = color === "white" ? "black" : "white";
 
       broadcast(room, {
-        type:"update",
-        board: room.board,
-        turn: room.turn,
-        enPassant: room.enPassant,
-        moved: room.moved
+        type: "gameover",
+        winner,
+        board: room.board
       });
     }
   });
@@ -256,10 +354,17 @@ if (data.type === "join") {
   ws.on("close", () => {
     const room = rooms[roomId];
     if (!room) return;
+
     room.players = room.players.filter(p => p.ws !== ws);
-    if (room.players.length === 0) delete rooms[roomId];
+
+    if (room.players.length === 0) {
+      delete rooms[roomId];
+    }
   });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log("Server running on", PORT));
+
+server.listen(PORT, () => {
+  console.log("Server running on", PORT);
+});
