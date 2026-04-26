@@ -634,6 +634,44 @@ const Game = (() => {
       area.innerHTML = "";
       return;
     }
+    function showNecroModal() {
+  const modal = document.getElementById("necroModal");
+  const list = document.getElementById("necroList");
+
+  list.innerHTML = "";
+
+  cardState.necroCapturedPieces.forEach((piece, index) => {
+    const btn = document.createElement("button");
+    btn.className = "necroBtn";
+    btn.textContent = pieceName(piece);
+    btn.onclick = () => chooseNecroPiece(index);
+    list.appendChild(btn);
+  });
+
+  modal.classList.remove("hidden");
+}
+
+function chooseNecroPiece(index) {
+  cardState.necroSelectedPiece = cardState.necroCapturedPieces[index];
+  cardState.activeMode = "necroPlace";
+
+  document.getElementById("necroModal").classList.add("hidden");
+
+  alert("킹 주변 칸 클릭해라");
+}
+
+function pieceName(piece) {
+  const names = {
+    p: "폰",
+    r: "룩",
+    n: "나이트",
+    b: "비숍",
+    q: "퀸",
+    k: "킹"
+  };
+
+  return names[piece[1]];
+}
 
     area.innerHTML = `
       <div class="cardBox">
