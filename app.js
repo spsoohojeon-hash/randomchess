@@ -353,8 +353,11 @@ ws.onmessage = e => {
 
       turn = turn === "white" ? "black" : "white";
 
-      render();
-      return;
+syncCardUpdate();
+render();
+return;
+
+      
     }
 
     if (cardState.activeMode === "exorcism") {
