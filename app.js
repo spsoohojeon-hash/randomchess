@@ -161,7 +161,7 @@ const Game = (() => {
 
           const t = ev.touches[0];
           moveGhost(t.clientX, t.clientY);
-          render();
+          
         };
 
         cell.ontouchmove = ev => {
