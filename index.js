@@ -363,7 +363,8 @@ wss.on("connection", ws => {
         turn: room.turn,
         enPassant: room.enPassant,
         moved: room.moved,
-        doubleMove: room.doubleMove
+        doubleMove: room.doubleMove,
+        wildHorse: room.wildHorse
       });
     }
 if (data.type === "cardUpdate") {
