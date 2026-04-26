@@ -55,6 +55,10 @@ function createRoom() {
     wildHorse: {
   white: false,
   black: false
+    },
+    usedCards: {
+  white: false,
+  black: false
     }
   };
 }
