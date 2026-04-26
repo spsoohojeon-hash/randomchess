@@ -105,28 +105,39 @@ wss.on("connection", ws => {
   ws.on("message", msg => {
     const data = JSON.parse(msg.toString());
 
-    if (data.type === "join") {
-      roomId = data.roomId || "room1";
-      if (!rooms[roomId]) rooms[roomId] = createRoom();
-      const room = rooms[roomId];
+if (data.type === "join") {
+  roomId = data.roomId || "room1";
 
-      if (room.players.length >= 2) {
-        send(ws, { type:"full" });
-        return;
-      }
+  if (!rooms[roomId]) rooms[roomId] = createRoom();
+  const room = rooms[roomId];
 
-      color = room.players.length === 0 ? "white" : "black";
-      room.players.push({ ws, color });
+  if (room.players.length >= 2) {
+    send(ws, { type:"full" });
+    return;
+  }
 
-      send(ws, {
-        type:"start",
-        color,
-        board: room.board,
-        turn: room.turn,
-        enPassant: room.enPassant,
-        moved: room.moved
-      });
-    }
+  color = room.players.length === 0 ? "white" : "black";
+  room.players.push({ ws, color });
+
+  if (room.players.length === 1) {
+    send(ws, {
+      type: "waiting",
+      message: "매칭 찾는 중..."
+    });
+    return;
+  }
+
+  room.players.forEach(player => {
+    send(player.ws, {
+      type: "start",
+      color: player.color,
+      board: room.board,
+      turn: room.turn,
+      enPassant: room.enPassant,
+      moved: room.moved
+    });
+  });
+}
 
     if (data.type === "move") {
       const room = rooms[roomId];
