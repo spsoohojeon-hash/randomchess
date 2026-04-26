@@ -528,3 +528,4 @@ function activateCard() {
 
 return { startLocal, makeRoom, joinOnline, backMenu, reset, choosePromotion, activateCard };    
 })();
+window.Game = Game;
