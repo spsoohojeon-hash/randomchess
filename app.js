@@ -76,9 +76,7 @@ const Game = (() => {
     showGame();
     renderCard();
     render();
-  }
-
-  function makeRoom() {
+  }function makeRoom() {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
     document.getElementById("roomInput").value = code;
     alert("방 코드: " + code);
@@ -167,13 +165,14 @@ const Game = (() => {
     };
   }
 
-  function reset() {
-    removeGhost();
+  function resign() {
+    const winner = turn === "white" ? "black" : "white";
+    alert("기권! 승자: " + winner);
 
-    if (localMode) {
-      startLocal();
-    } else if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type:"reset" }));
+    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: "resign"
+      }));
     }
   }
 
@@ -237,9 +236,7 @@ const Game = (() => {
 
           const t = ev.touches[0];
           moveGhost(t.clientX, t.clientY);
-        };
-
-        cell.ontouchmove = ev => {
+        };cell.ontouchmove = ev => {
           if (!ghost) return;
           ev.preventDefault();
 
@@ -407,9 +404,7 @@ const Game = (() => {
       touchFrom = null;
       render();
     }
-  }
-
-  function askPromotion() {
+  }function askPromotion() {
     document.getElementById("promotionModal").classList.remove("hidden");
 
     return new Promise(resolve => {
@@ -546,20 +541,11 @@ const Game = (() => {
 
         while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
           if (!board[nr][nc]) {
-            res.push({
-              r: nr,
-              c: nc,
-              type: "normal"
-            });
+            res.push({ r: nr, c: nc, type: "normal" });
           } else {
             if (board[nr][nc][0] !== color) {
-              res.push({
-                r: nr,
-                c: nc,
-                type: "normal"
-              });
+              res.push({ r: nr, c: nc, type: "normal" });
             }
-
             break;
           }
 
@@ -573,24 +559,16 @@ const Game = (() => {
       const dir = color === "w" ? -1 : 1;
       const start = color === "w" ? 6 : 1;
 
-      if (!board[r + dir]?.[c]) {
-        add(r + dir, c);
-      }
+      if (!board[r + dir]?.[c]) add(r + dir, c);
 
-      if (
-        r === start &&
-        !board[r + dir]?.[c] &&
-        !board[r + dir * 2]?.[c]
-      ) {
+      if (r === start && !board[r + dir]?.[c] && !board[r + dir * 2]?.[c]) {
         add(r + dir * 2, c, "doublePawn");
       }
 
       for (const dc of [-1, 1]) {
         const target = board[r + dir]?.[c + dc];
 
-        if (target && target[0] !== color) {
-          add(r + dir, c + dc);
-        }
+        if (target && target[0] !== color) add(r + dir, c + dc);
 
         if (enPassant && enPassant.r === r + dir && enPassant.c === c + dc) {
           res.push({
@@ -613,24 +591,14 @@ const Game = (() => {
       ].forEach(([dr, dc]) => add(r + dr, c + dc));
     }
 
-    if (type === "b") {
-      slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
-    }
-
-    if (type === "r") {
-      slide([[1,0],[-1,0],[0,1],[0,-1]]);
-    }
-
-    if (type === "q") {
-      slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
-    }
+    if (type === "b") slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
+    if (type === "r") slide([[1,0],[-1,0],[0,1],[0,-1]]);
+    if (type === "q") slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
 
     if (type === "k") {
       for (let dr = -1; dr <= 1; dr++) {
         for (let dc = -1; dc <= 1; dc++) {
-          if (dr || dc) {
-            add(r + dr, c + dc);
-          }
+          if (dr || dc) add(r + dr, c + dc);
         }
       }
 
@@ -658,35 +626,24 @@ const Game = (() => {
     return res;
   }
 
-  const CARD_NAMES = {
-    necro: "네크로맨서",
-    wildHorse: "존나 야생마",
-    spaceTravel: "우주여행",
-    doubleMove: "더블무브",
-    equality: "평등국가",
-    reactionary: "반동분자",
-    exorcism: "퇴마(물리)",
-    kingReturn: "왕의 귀환"
-  };
-
   function renderCard() {
-  const area = document.getElementById("cardArea");
-  if (!area) return;
+    const area = document.getElementById("cardArea");
+    if (!area) return;
 
-  if (!myCard) {
-    area.innerHTML = "";
-    return;
-  }
+    if (!myCard) {
+      area.innerHTML = "";
+      return;
+    }
 
-  area.innerHTML = `
-    <div class="cardBox">
-      <div class="cardTitle">${getCardName(myCard)}</div>
-      <div class="cardDesc">${getCardDescription(myCard)}</div>
-      <button class="cardBtn" onclick="Game.activateCard()">
-        능력 사용
-      </button>
-    </div>
-  `;
+    area.innerHTML = `
+      <div class="cardBox">
+        <div class="cardTitle">${getCardName(myCard)}</div>
+        <div class="cardDesc">${getCardDescription(myCard)}</div>
+        <button class="cardBtn" onclick="Game.activateCard()">
+          능력 사용
+        </button>
+      </div>
+    `;
   }
 
   function activateCard() {
@@ -699,7 +656,7 @@ const Game = (() => {
     makeRoom,
     joinOnline,
     backMenu,
-    reset,
+    resign,
     choosePromotion,
     activateCard
   };
