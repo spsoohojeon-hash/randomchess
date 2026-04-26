@@ -691,6 +691,9 @@ const Game = (() => {
 function chooseNecroPiece(index) {
   cardState.necroSelectedPiece = cardState.necroCapturedPieces[index];
   cardState.activeMode = "necroPlace";
+  moves = getNecroPlaceMoves();
+selected = null;
+render();
 
   document.getElementById("necroModal").classList.add("hidden");
 
