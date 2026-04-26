@@ -803,6 +803,12 @@ return;
     alert(result.message);
 
     if (!result.ok) return;
+    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+    ws.send(JSON.stringify({
+      type: "card",
+      card: usedCard
+    }));
+    }
 
     if (usedCard === "necro") {
       showNecroModal();
