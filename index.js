@@ -215,6 +215,16 @@ wss.on("connection", ws => {
 
   ws.on("message", msg => {
     const data = JSON.parse(msg.toString());
+    if (data.type === "card") {
+  const room = rooms[roomId];
+  if (!room || room.over) return;
+
+  if (data.card === "doubleMove") {
+    room.doubleMove[color] = 2;
+  }
+
+  return;
+    }
 
     if (data.type === "join") {
       roomId = data.roomId || "room1";
@@ -328,14 +338,20 @@ wss.on("connection", ws => {
         return;
       }
 
-      room.turn = room.turn === "white" ? "black" : "white";
+      if (room.doubleMove[color] > 1) {
+  room.doubleMove[color]--;
+} else {
+  room.doubleMove[color] = 0;
+  room.turn = room.turn === "white" ? "black" : "white";
+      }
 
       broadcast(room, {
         type:"update",
         board,
         turn: room.turn,
         enPassant: room.enPassant,
-        moved: room.moved
+        moved: room.moved,
+        doubleMove: room.doubleMove
       });
     }
 if (data.type === "cardUpdate") {
@@ -352,7 +368,8 @@ if (data.type === "cardUpdate") {
     board: room.board,
     turn: room.turn,
     enPassant: room.enPassant,
-    moved: room.moved
+    moved: room.moved,
+    doubleMove: room.doubleMove
   });
 }
     if (data.type === "resign") {
