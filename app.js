@@ -156,6 +156,9 @@ ws.onmessage = e => {
         if (data.doubleMove && myColor) {
   cardState.doubleMoveLeft = data.doubleMove[myColor];
         }
+        if (data.wildHorse && myColor) {
+  cardState.wildHorse = data.wildHorse[myColor];
+        }
 
         selected = null;
         moves = [];
