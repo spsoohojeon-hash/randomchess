@@ -37,9 +37,13 @@ const Game = (() => {
   }
 
   function resetState() {
-    board = createBoard(); turn = "white"; selected = null; moves = [];
+    board = createBoard();
+    turn = "white";
+    selected = null;
+    moves = [];
     enPassant = null;
     moved = { wk:false, wrA:false, wrH:false, bk:false, brA:false, brH:false };
+    cardState = createCardState();
   }
 
   function showGame() {
@@ -58,8 +62,14 @@ const Game = (() => {
   }
 
   function startLocal() {
-    localMode = true; myColor = null; roomCode = null;
-    resetState(); showGame(); render();
+    localMode = true;
+    myColor = null;
+    roomCode = null;
+    myCard = null;
+    resetState();
+    showGame();
+    renderCard();
+    render();
   }
 
   function makeRoom() {
@@ -73,11 +83,19 @@ const Game = (() => {
     const input = document.getElementById("roomInput").value.trim().toUpperCase();
     if (!input) return alert("방 코드를 입력해라.");
 
-    localMode = false; roomCode = input;
+    localMode = false;
+    roomCode = input;
+
     if (ws) ws.close();
+
     ws = new WebSocket(SERVER);
 
-    ws.onopen = () => ws.send(JSON.stringify({ type:"join", roomId:roomCode }));
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        type: "join",
+        roomId: roomCode
+      }));
+    };
 
     ws.onmessage = e => {
       const data = JSON.parse(e.data);
@@ -86,17 +104,22 @@ const Game = (() => {
         showGame();
         status("매칭 찾는 중...");
         document.getElementById("board").innerHTML = "";
+        return;
       }
 
       if (data.type === "start") {
         myCard = data.card;
         renderCard();
+
         myColor = data.color;
         board = data.board;
         turn = data.turn;
         enPassant = data.enPassant || null;
         moved = data.moved || moved;
-        showGame(); render();
+
+        showGame();
+        render();
+        return;
       }
 
       if (data.type === "update") {
@@ -104,33 +127,58 @@ const Game = (() => {
         turn = data.turn;
         enPassant = data.enPassant || null;
         moved = data.moved || moved;
-        selected = null; moves = []; removeGhost(); render();
+
+        selected = null;
+        moves = [];
+        removeGhost();
+        render();
+        return;
       }
 
       if (data.type === "gameover") {
         board = data.board;
-        removeGhost(); render();
+
+        removeGhost();
+        render();
+
         alert("게임 끝! 승자: " + data.winner);
+        return;
       }
 
-      if (data.type === "full") alert("방이 가득 참");
-      if (data.type === "error") alert(data.message);
+      if (data.type === "full") {
+        alert("방이 가득 참");
+        return;
+      }
+
+      if (data.type === "error") {
+        alert(data.message);
+        return;
+      }
     };
 
-    ws.onerror = () => alert("서버 연결 에러");
+    ws.onerror = () => {
+      alert("서버 연결 에러");
+    };
   }
 
   function reset() {
     removeGhost();
-    if (localMode) startLocal();
-    else if (ws && ws.readyState === WebSocket.OPEN) ws.send(JSON.stringify({ type:"reset" }));
+
+    if (localMode) {
+      startLocal();
+    } else if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({ type:"reset" }));
+    }
   }
 
   function render() {
     const boardDiv = document.getElementById("board");
     boardDiv.innerHTML = "";
 
-    status((localMode ? "로컬 2인" : `온라인 ${roomCode} / 내 색: ${myColor || "대기중"}`) + ` | ${turn} 턴`);
+    status(
+      (localMode ? "로컬 2인" : `온라인 ${roomCode} / 내 색: ${myColor || "대기중"}`)
+      + ` | ${turn} 턴`
+    );
 
     for (let r = 0; r < 8; r++) {
       for (let c = 0; c < 8; c++) {
@@ -139,12 +187,17 @@ const Game = (() => {
         cell.dataset.r = r;
         cell.dataset.c = c;
 
-        if (selected && selected.r === r && selected.c === c) cell.classList.add("selected");
+        if (selected && selected.r === r && selected.c === c) {
+          cell.classList.add("selected");
+        }
 
         const legal = moves.find(m => m.r === r && m.c === c);
         if (legal) {
-          if (board[r][c] || legal.type === "enPassant") cell.classList.add("capture");
-          else cell.classList.add("move");
+          if (board[r][c] || legal.type === "enPassant") {
+            cell.classList.add("capture");
+          } else {
+            cell.classList.add("move");
+          }
         }
 
         const piece = board[r][c];
@@ -183,17 +236,20 @@ const Game = (() => {
         cell.ontouchmove = ev => {
           if (!ghost) return;
           ev.preventDefault();
+
           const t = ev.touches[0];
           moveGhost(t.clientX, t.clientY);
         };
 
         cell.ontouchend = ev => {
           if (!touchFrom) return;
+
           ev.preventDefault();
 
           const t = ev.changedTouches[0];
           const el = document.elementFromPoint(t.clientX, t.clientY);
           const target = el?.closest(".cell");
+
           removeGhost();
 
           if (target) {
@@ -202,6 +258,7 @@ const Game = (() => {
               c: Number(target.dataset.c)
             });
           }
+
           touchFrom = null;
         };
 
@@ -225,9 +282,11 @@ const Game = (() => {
 
   function canSelect(r, c) {
     const piece = board[r]?.[c];
+
     if (!piece) return false;
     if (piece[0] !== turn[0]) return false;
     if (!localMode && myColor && piece[0] !== myColor[0]) return false;
+
     return true;
   }
 
@@ -284,6 +343,7 @@ const Game = (() => {
 
     if (!selected) {
       if (!canSelect(r, c)) return;
+
       selected = { r, c };
       moves = getMoves(r, c);
       render();
@@ -295,12 +355,17 @@ const Game = (() => {
 
   async function tryMove(from, to) {
     const legal = moves.find(m => m.r === to.r && m.c === to.c);
+
     if (!legal) {
-      selected = null; moves = []; touchFrom = null; render();
+      selected = null;
+      moves = [];
+      touchFrom = null;
+      render();
       return;
     }
 
     let promoteTo = null;
+
     const moving = board[from.r][from.c];
     const target = board[to.r][to.c];
 
@@ -319,20 +384,36 @@ const Game = (() => {
 
     if (localMode) {
       applyMove(from, to, promoteTo);
-      selected = null; moves = []; touchFrom = null; render();
+      selected = null;
+      moves = [];
+      touchFrom = null;
+      render();
     } else if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({ type:"move", from, to, promoteTo }));
-      selected = null; moves = []; touchFrom = null; render();
+      ws.send(JSON.stringify({
+        type:"move",
+        from,
+        to,
+        promoteTo
+      }));
+
+      selected = null;
+      moves = [];
+      touchFrom = null;
+      render();
     }
   }
 
   function askPromotion() {
     document.getElementById("promotionModal").classList.remove("hidden");
-    return new Promise(resolve => promotionResolve = resolve);
+
+    return new Promise(resolve => {
+      promotionResolve = resolve;
+    });
   }
 
   function choosePromotion(piece) {
     document.getElementById("promotionModal").classList.add("hidden");
+
     if (promotionResolve) {
       promotionResolve(piece);
       promotionResolve = null;
@@ -342,6 +423,7 @@ const Game = (() => {
   function applyMove(from, to, promoteTo) {
     const moving = board[from.r][from.c];
     let captured = board[to.r][to.c];
+
     const legal = getMoves(from.r, from.c).find(m => m.r === to.r && m.c === to.c);
 
     updateMoved(moving, from);
@@ -358,7 +440,10 @@ const Game = (() => {
 
     if (legal?.type === "doublePawn") {
       const dir = moving[0] === "w" ? -1 : 1;
-      enPassant = { r: from.r + dir, c: from.c };
+      enPassant = {
+        r: from.r + dir,
+        c: from.c
+      };
     }
 
     if (legal?.type === "castleKing") {
@@ -420,6 +505,7 @@ const Game = (() => {
   function updateMoved(piece, from) {
     if (piece === "wk") moved.wk = true;
     if (piece === "bk") moved.bk = true;
+
     if (piece === "wr" && from.r === 7 && from.c === 0) moved.wrA = true;
     if (piece === "wr" && from.r === 7 && from.c === 7) moved.wrH = true;
     if (piece === "br" && from.r === 0 && from.c === 0) moved.brA = true;
@@ -428,6 +514,7 @@ const Game = (() => {
 
   function getMoves(r, c) {
     const piece = board[r]?.[c];
+
     if (!piece) return [];
 
     const color = piece[0];
@@ -436,21 +523,42 @@ const Game = (() => {
 
     const add = (nr, nc, kind = "normal") => {
       if (nr < 0 || nr > 7 || nc < 0 || nc > 7) return;
+
       if (!board[nr][nc] || board[nr][nc][0] !== color) {
-        res.push({ r:nr, c:nc, type:kind });
+        res.push({
+          r: nr,
+          c: nc,
+          type: kind
+        });
       }
     };
 
     const slide = dirs => {
       for (const [dr, dc] of dirs) {
-        let nr = r + dr, nc = c + dc;
+        let nr = r + dr;
+        let nc = c + dc;
+
         while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
-          if (!board[nr][nc]) res.push({ r:nr, c:nc, type:"normal" });
-          else {
-            if (board[nr][nc][0] !== color) res.push({ r:nr, c:nc, type:"normal" });
+          if (!board[nr][nc]) {
+            res.push({
+              r: nr,
+              c: nc,
+              type: "normal"
+            });
+          } else {
+            if (board[nr][nc][0] !== color) {
+              res.push({
+                r: nr,
+                c: nc,
+                type: "normal"
+              });
+            }
+
             break;
           }
-          nr += dr; nc += dc;
+
+          nr += dr;
+          nc += dc;
         }
       }
     };
@@ -459,14 +567,31 @@ const Game = (() => {
       const dir = color === "w" ? -1 : 1;
       const start = color === "w" ? 6 : 1;
 
-      if (!board[r + dir]?.[c]) add(r + dir, c);
-      if (r === start && !board[r + dir]?.[c] && !board[r + dir * 2]?.[c]) add(r + dir * 2, c, "doublePawn");
+      if (!board[r + dir]?.[c]) {
+        add(r + dir, c);
+      }
+
+      if (
+        r === start &&
+        !board[r + dir]?.[c] &&
+        !board[r + dir * 2]?.[c]
+      ) {
+        add(r + dir * 2, c, "doublePawn");
+      }
 
       for (const dc of [-1, 1]) {
         const target = board[r + dir]?.[c + dc];
-        if (target && target[0] !== color) add(r + dir, c + dc);
+
+        if (target && target[0] !== color) {
+          add(r + dir, c + dc);
+        }
+
         if (enPassant && enPassant.r === r + dir && enPassant.c === c + dc) {
-          res.push({ r:r + dir, c:c + dc, type:"enPassant" });
+          res.push({
+            r: r + dir,
+            c: c + dc,
+            type: "enPassant"
+          });
         }
       }
     }
@@ -476,25 +601,51 @@ const Game = (() => {
         return getWildHorseMoves(r, c, board, color);
       }
 
-      [[2,1],[1,2],[-1,2],[-2,1],[-2,-1],[-1,-2],[1,-2],[2,-1]]
-        .forEach(([dr,dc]) => add(r+dr,c+dc));
+      [
+        [2,1],[1,2],[-1,2],[-2,1],
+        [-2,-1],[-1,-2],[1,-2],[2,-1]
+      ].forEach(([dr, dc]) => add(r + dr, c + dc));
     }
 
-    if (type === "b") slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
-    if (type === "r") slide([[1,0],[-1,0],[0,1],[0,-1]]);
-    if (type === "q") slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
+    if (type === "b") {
+      slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
+    }
+
+    if (type === "r") {
+      slide([[1,0],[-1,0],[0,1],[0,-1]]);
+    }
+
+    if (type === "q") {
+      slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
+    }
 
     if (type === "k") {
-      for (let dr = -1; dr <= 1; dr++) for (let dc = -1; dc <= 1; dc++) if (dr || dc) add(r+dr,c+dc);
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          if (dr || dc) {
+            add(r + dr, c + dc);
+          }
+        }
+      }
 
       if (color === "w" && r === 7 && c === 4 && !moved.wk) {
-        if (!moved.wrH && board[7][5] === "" && board[7][6] === "" && board[7][7] === "wr") add(7, 6, "castleKing");
-        if (!moved.wrA && board[7][1] === "" && board[7][2] === "" && board[7][3] === "" && board[7][0] === "wr") add(7, 2, "castleQueen");
+        if (!moved.wrH && board[7][5] === "" && board[7][6] === "" && board[7][7] === "wr") {
+          add(7, 6, "castleKing");
+        }
+
+        if (!moved.wrA && board[7][1] === "" && board[7][2] === "" && board[7][3] === "" && board[7][0] === "wr") {
+          add(7, 2, "castleQueen");
+        }
       }
 
       if (color === "b" && r === 0 && c === 4 && !moved.bk) {
-        if (!moved.brH && board[0][5] === "" && board[0][6] === "" && board[0][7] === "br") add(0, 6, "castleKing");
-        if (!moved.brA && board[0][1] === "" && board[0][2] === "" && board[0][3] === "" && board[0][0] === "br") add(0, 2, "castleQueen");
+        if (!moved.brH && board[0][5] === "" && board[0][6] === "" && board[0][7] === "br") {
+          add(0, 6, "castleKing");
+        }
+
+        if (!moved.brA && board[0][1] === "" && board[0][2] === "" && board[0][3] === "" && board[0][0] === "br") {
+          add(0, 2, "castleQueen");
+        }
       }
     }
 
@@ -533,7 +684,15 @@ const Game = (() => {
     alert(result.message);
   }
 
-  return { startLocal, makeRoom, joinOnline, backMenu, reset, choosePromotion, activateCard };
+  return {
+    startLocal,
+    makeRoom,
+    joinOnline,
+    backMenu,
+    reset,
+    choosePromotion,
+    activateCard
+  };
 })();
 
 window.Game = Game;
