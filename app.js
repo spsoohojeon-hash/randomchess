@@ -5,6 +5,9 @@ import {
   getCardName,
   getCardDescription
 } from "./cards.js";
+window.onerror = function(msg) {
+  alert("에러: " + msg);
+};
 
 const Game = (() => {
   const SERVER = "wss://randomchess.onrender.com";
