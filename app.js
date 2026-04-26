@@ -397,5 +397,36 @@ renderCard();
     return res;
   }
 
-  return { startLocal, makeRoom, joinOnline, backMenu, reset, choosePromotion };
+  const CARD_NAMES = {
+  necro: "네크로맨서",
+  wildHorse: "존나 야생마",
+  spaceTravel: "우주여행",
+  doubleMove: "더블무브",
+  equality: "평등국가",
+  reactionary: "반동분자",
+  exorcism: "퇴마(물리)",
+  kingReturn: "왕의 귀환"
+};
+
+function renderCard() {
+  const area = document.getElementById("cardArea");
+  if (!area) return;
+
+  if (!myCard) {
+    area.innerHTML = "";
+    return;
+  }
+
+  area.innerHTML = `
+    <button class="cardBtn" onclick="Game.useCard()">
+      카드 사용: ${CARD_NAMES[myCard]}
+    </button>
+  `;
+}
+
+function useCard() {
+  alert("사용할 카드: " + CARD_NAMES[myCard]);
+}
+
+return { startLocal, makeRoom, joinOnline, backMenu, reset, choosePromotion };    
 })();
