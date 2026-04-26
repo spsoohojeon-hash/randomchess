@@ -51,6 +51,10 @@ function createRoom() {
     doubleMove: {
   white: 0,
   black: 0
+    },
+    wildHorse: {
+  white: false,
+  black: false
     }
   };
 }
