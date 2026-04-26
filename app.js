@@ -803,27 +803,27 @@ return;
     return result;
   }
 
-  function activateCard() {
-    const usedCard = myCard;
-    const result = useCard(myCard, cardState);
-    alert(result.message);
+function activateCard() {
+  const usedCard = myCard;
+  const result = useCard(myCard, cardState);
+  alert(result.message);
 
-    if (!result.ok) return;
-    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+  if (!result.ok) return;
+
+  if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
     ws.send(JSON.stringify({
       type: "card",
       card: usedCard
     }));
-    }
-
-    if (usedCard === "necro") {
-      showNecroModal();
-      return;
-    }
-
-    myCard = null;
-    renderCard();
   }
+
+  if (usedCard === "necro") {
+    showNecroModal();
+  }
+
+  myCard = null;
+  renderCard();
+}
 
   return {
     startLocal,
