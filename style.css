@@ -144,9 +144,18 @@ img {
   height: 90%;
   object-fit: contain;
   user-select: none;
-  -webkit-user-drag: auto;
+  -webkit-user-drag: none;
   pointer-events: auto;
   z-index: 1;
+}
+
+.dragGhost {
+  position: fixed;
+  width: 58px;
+  height: 58px;
+  pointer-events: none;
+  z-index: 999;
+  transform: translate(-50%, -50%);
 }
 
 #promotionModal {
