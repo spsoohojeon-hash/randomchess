@@ -738,8 +738,19 @@ function pieceName(piece) {
   }
 
   function activateCard() {
-    const result = useCard(myCard, cardState);
-    alert(result.message);
+  const usedCard = myCard;
+  const result = useCard(myCard, cardState);
+  alert(result.message);
+
+  if (!result.ok) return;
+
+  if (usedCard === "necro") {
+    showNecroModal();
+    return;
+  }
+
+  myCard = null;
+  renderCard();
   }
 
   return {
