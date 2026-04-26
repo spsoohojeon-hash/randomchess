@@ -227,6 +227,10 @@ wss.on("connection", ws => {
     room.doubleMove[color] = 2;
   }
 
+  if (data.card === "wildHorse") {
+    room.wildHorse[color] = true;
+  }
+
   return;
     }
 
