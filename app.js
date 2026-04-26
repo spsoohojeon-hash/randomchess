@@ -100,7 +100,6 @@ const Game = (() => {
     ws = new WebSocket(SERVER);
 
 ws.onopen = () => {
-  alert("서버 연결 성공");
   ws.send(JSON.stringify({
     type: "join",
     roomId: roomCode
@@ -108,11 +107,11 @@ ws.onopen = () => {
 };
 
 ws.onerror = () => {
-  alert("서버 연결 에러");
+  console.log("서버 연결 에러");
 };
 
 ws.onclose = () => {
-  alert("서버 연결 끊김");
+  console.log("서버 연결 끊김");
 };
 
 ws.onmessage = e => {
