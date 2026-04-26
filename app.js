@@ -320,7 +320,68 @@ ws.onmessage = e => {
 
     return true;
   }
+if (cardState.activeMode === "spacePick") {
+      const piece = board[r]?.[c];
 
+      if (!piece || piece[0] !== turn[0]) {
+        alert("내 기물만 선택 가능");
+        return;
+      }
+
+      const targets = getSpaceTravelPieces();
+      const ok = targets.some(p => p.r === r && p.c === c);
+
+      if (!ok) {
+        alert("상대 진영 코너에 도착한 기물만 선택 가능");
+        return;
+      }
+
+      cardState.selectedSquares = [{ r, c }];
+      cardState.activeMode = "spacePlace";
+      selected = { r, c };
+      moves = getEmptySquares();
+
+      render();
+      return;
+    }
+
+    if (cardState.activeMode === "spacePlace") {
+      if (board[r][c]) {
+        alert("빈칸만 텔레포트 가능");
+        return;
+      }
+
+      const from = cardState.selectedSquares[0];
+      const piece = board[from.r][from.c];
+
+      if (!piece) {
+        alert("텔레포트할 기물이 없음");
+        cardState.activeMode = null;
+        cardState.selectedSquares = [];
+        selected = null;
+        moves = [];
+        render();
+        return;
+      }
+
+      board[r][c] = piece;
+      board[from.r][from.c] = "";
+
+      cardState.spaceTravelEnabled = false;
+      cardState.teleportPieces = [];
+      cardState.selectedSquares = [];
+      cardState.activeMode = null;
+
+      selected = null;
+      moves = [];
+
+      turn = turn === "white" ? "black" : "white";
+
+      syncCardUpdate();
+      renderCard();
+      render();
+      return;
+    }
   function clickCell(r, c) {
     if (cardState.activeMode === "necroPlace") {
       if (board[r][c]) {
