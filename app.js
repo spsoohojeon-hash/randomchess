@@ -1,4 +1,5 @@
 import { createCardState, useCard, getWildHorseMoves } from "./cards.js";
+
 const Game = (() => {
   const SERVER = "wss://randomchess.onrender.com";
 
@@ -8,7 +9,7 @@ const Game = (() => {
   let moved = { wk:false, wrA:false, wrH:false, bk:false, brA:false, brH:false };
   let myCard = null;
   let cardState = createCardState();
-  
+
   const imgs = {
     wp:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wp.png",
     wr:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wr.png",
@@ -80,15 +81,16 @@ const Game = (() => {
 
     ws.onmessage = e => {
       const data = JSON.parse(e.data);
+
       if (data.type === "waiting") {
-  showGame();
-  status("매칭 찾는 중...");
-  document.getElementById("board").innerHTML = "";
+        showGame();
+        status("매칭 찾는 중...");
+        document.getElementById("board").innerHTML = "";
       }
 
       if (data.type === "start") {
         myCard = data.card;
-renderCard();
+        renderCard();
         myColor = data.color;
         board = data.board;
         turn = data.turn;
@@ -149,35 +151,34 @@ renderCard();
         if (piece) {
           const img = document.createElement("img");
           img.src = imgs[piece];
-
           cell.appendChild(img);
         }
 
         cell.onclick = () => clickCell(r, c);
 
         cell.ontouchstart = ev => {
-  if (!canSelect(r, c)) return;
+          if (!canSelect(r, c)) return;
 
-  ev.preventDefault();
+          ev.preventDefault();
 
-  selected = { r, c };
-  touchFrom = { r, c };
-  moves = getMoves(r, c);
+          selected = { r, c };
+          touchFrom = { r, c };
+          moves = getMoves(r, c);
 
-  render(); 
+          render();
 
-  const pieceNow = board[r][c];
+          const pieceNow = board[r][c];
 
-  removeGhost();
+          removeGhost();
 
-  ghost = document.createElement("img");
-  ghost.src = imgs[pieceNow];
-  ghost.className = "dragGhost";
-  document.body.appendChild(ghost);
+          ghost = document.createElement("img");
+          ghost.src = imgs[pieceNow];
+          ghost.className = "dragGhost";
+          document.body.appendChild(ghost);
 
-  const t = ev.touches[0];
-  moveGhost(t.clientX, t.clientY);
-};
+          const t = ev.touches[0];
+          moveGhost(t.clientX, t.clientY);
+        };
 
         cell.ontouchmove = ev => {
           if (!ghost) return;
@@ -232,53 +233,55 @@ renderCard();
 
   function clickCell(r, c) {
     if (cardState.activeMode === "exorcism") {
-    const piece = board[r]?.[c];
+      const piece = board[r]?.[c];
 
-    if (!piece || piece[0] !== turn[0] || piece[1] !== "b") {
-      alert("퇴마(물리)는 내 비숍만 사용할 수 있음");
+      if (!piece || piece[0] !== turn[0] || piece[1] !== "b") {
+        alert("퇴마(물리)는 내 비숍만 사용할 수 있음");
+        return;
+      }
+
+      doExorcism(r, c);
+
+      cardState.activeMode = null;
+      selected = null;
+      moves = [];
+      render();
       return;
     }
 
-    doExorcism(r, c);
-
-    cardState.activeMode = null;
-    selected = null;
-    moves = [];
-    render();
-    return;
-    }
     if (cardState.activeMode === "equality") {
-  const piece = board[r]?.[c];
+      const piece = board[r]?.[c];
 
-  if (!piece || piece[0] !== turn[0]) {
-    alert("내 기물만 선택 가능");
-    return;
-  }
+      if (!piece || piece[0] !== turn[0]) {
+        alert("내 기물만 선택 가능");
+        return;
+      }
 
-  cardState.selectedSquares.push({ r, c });
+      cardState.selectedSquares.push({ r, c });
 
-  if (cardState.selectedSquares.length === 2) {
-    const [a, b] = cardState.selectedSquares;
+      if (cardState.selectedSquares.length === 2) {
+        const [a, b] = cardState.selectedSquares;
 
-    if (a.r === b.r && Math.abs(a.c - b.c) === 2) {
-      const temp = board[a.r][a.c];
-      board[a.r][a.c] = board[b.r][b.c];
-      board[b.r][b.c] = temp;
+        if (a.r === b.r && Math.abs(a.c - b.c) === 2) {
+          const temp = board[a.r][a.c];
+          board[a.r][a.c] = board[b.r][b.c];
+          board[b.r][b.c] = temp;
 
-      turn = turn === "white" ? "black" : "white";
-    } else {
-      alert("같은 줄에서 2칸 떨어진 기물만 가능");
+          turn = turn === "white" ? "black" : "white";
+        } else {
+          alert("같은 줄에서 2칸 떨어진 기물만 가능");
+        }
+
+        cardState.activeMode = null;
+        cardState.selectedSquares = [];
+        selected = null;
+        moves = [];
+        render();
+      }
+
+      return;
     }
 
-    cardState.activeMode = null;
-    cardState.selectedSquares = [];
-    selected = null;
-    moves = [];
-    render();
-  }
-
-  return;
-    }
     if (!selected) {
       if (!canSelect(r, c)) return;
       selected = { r, c };
@@ -286,6 +289,7 @@ renderCard();
       render();
       return;
     }
+
     tryMove(selected, { r, c });
   }
 
@@ -300,14 +304,14 @@ renderCard();
     const moving = board[from.r][from.c];
     const target = board[to.r][to.c];
 
-if (cardState.doubleMoveLeft > 0 && target && target[1] === "k") {
-  alert("더블무브 중에는 킹을 잡을 수 없음");
-  selected = null;
-  moves = [];
-  touchFrom = null;
-  render();
-  return;
-}
+    if (cardState.doubleMoveLeft > 0 && target && target[1] === "k") {
+      alert("더블무브 중에는 킹을 잡을 수 없음");
+      selected = null;
+      moves = [];
+      touchFrom = null;
+      render();
+      return;
+    }
 
     if (moving[1] === "p" && (to.r === 0 || to.r === 7)) {
       promoteTo = await askPromotion();
@@ -377,38 +381,40 @@ if (cardState.doubleMoveLeft > 0 && target && target[1] === "k") {
       alert("게임 끝! 승자: " + turn);
       return;
     }
-if (cardState.doubleMoveLeft > 1) {
-  cardState.doubleMoveLeft--;
-} else {
-  cardState.doubleMoveLeft = 0;
-  turn = turn === "white" ? "black" : "white";
-}
-    function doExorcism(r, c) {
-  const bishop = board[r][c];
-  if (!bishop) return;
 
-  const color = bishop[0];
-  const dir = color === "w" ? -1 : 1;
-
-  for (let dc = -1; dc <= 1; dc++) {
-    const nr = r + dir;
-    const nc = c + dc;
-
-    if (nr < 0 || nr > 7 || nc < 0 || nc > 7) continue;
-
-    const target = board[nr][nc];
-
-    if (target && target[1] === "k") {
-      alert("퇴마(물리)로 킹 제거! 승자: " + turn);
-      board[nr][nc] = "";
-      return;
+    if (cardState.doubleMoveLeft > 1) {
+      cardState.doubleMoveLeft--;
+    } else {
+      cardState.doubleMoveLeft = 0;
+      turn = turn === "white" ? "black" : "white";
     }
-
-    board[nr][nc] = "";
   }
 
-  turn = turn === "white" ? "black" : "white";
+  function doExorcism(r, c) {
+    const bishop = board[r][c];
+    if (!bishop) return;
+
+    const color = bishop[0];
+    const dir = color === "w" ? -1 : 1;
+
+    for (let dc = -1; dc <= 1; dc++) {
+      const nr = r + dir;
+      const nc = c + dc;
+
+      if (nr < 0 || nr > 7 || nc < 0 || nc > 7) continue;
+
+      const target = board[nr][nc];
+
+      if (target && target[1] === "k") {
+        alert("퇴마(물리)로 킹 제거! 승자: " + turn);
+        board[nr][nc] = "";
+        return;
+      }
+
+      board[nr][nc] = "";
     }
+
+    turn = turn === "white" ? "black" : "white";
   }
 
   function updateMoved(piece, from) {
@@ -466,13 +472,14 @@ if (cardState.doubleMoveLeft > 1) {
     }
 
     if (type === "n") {
-  if (cardState.wildHorse) {
-    return getWildHorseMoves(r, c, board, color);
-  }
+      if (cardState.wildHorse) {
+        return getWildHorseMoves(r, c, board, color);
+      }
 
-  [[2,1],[1,2],[-1,2],[-2,1],[-2,-1],[-1,-2],[1,-2],[2,-1]]
-    .forEach(([dr,dc]) => add(r+dr,c+dc));
+      [[2,1],[1,2],[-1,2],[-2,1],[-2,-1],[-1,-2],[1,-2],[2,-1]]
+        .forEach(([dr,dc]) => add(r+dr,c+dc));
     }
+
     if (type === "b") slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
     if (type === "r") slide([[1,0],[-1,0],[0,1],[0,-1]]);
     if (type === "q") slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
@@ -495,37 +502,38 @@ if (cardState.doubleMoveLeft > 1) {
   }
 
   const CARD_NAMES = {
-  necro: "네크로맨서",
-  wildHorse: "존나 야생마",
-  spaceTravel: "우주여행",
-  doubleMove: "더블무브",
-  equality: "평등국가",
-  reactionary: "반동분자",
-  exorcism: "퇴마(물리)",
-  kingReturn: "왕의 귀환"
-};
+    necro: "네크로맨서",
+    wildHorse: "존나 야생마",
+    spaceTravel: "우주여행",
+    doubleMove: "더블무브",
+    equality: "평등국가",
+    reactionary: "반동분자",
+    exorcism: "퇴마(물리)",
+    kingReturn: "왕의 귀환"
+  };
 
-function renderCard() {
-  const area = document.getElementById("cardArea");
-  if (!area) return;
+  function renderCard() {
+    const area = document.getElementById("cardArea");
+    if (!area) return;
 
-  if (!myCard) {
-    area.innerHTML = "";
-    return;
+    if (!myCard) {
+      area.innerHTML = "";
+      return;
+    }
+
+    area.innerHTML = `
+      <button class="cardBtn" onclick="Game.activateCard()">
+        카드 사용: ${CARD_NAMES[myCard]}
+      </button>
+    `;
   }
 
-  area.innerHTML = `
-    <button class="cardBtn" onclick="Game.activateCard()">
-      카드 사용: ${CARD_NAMES[myCard]}
-    </button>
-  `;
-}
+  function activateCard() {
+    const result = useCard(myCard, cardState);
+    alert(result.message);
+  }
 
-function activateCard() {
-  const result = useCard(myCard, cardState);
-  alert(result.message);
-}
-
-return { startLocal, makeRoom, joinOnline, backMenu, reset, choosePromotion, activateCard };    
+  return { startLocal, makeRoom, joinOnline, backMenu, reset, choosePromotion, activateCard };
 })();
+
 window.Game = Game;
