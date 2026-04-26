@@ -159,7 +159,9 @@ const Game = (() => {
         cell.dataset.r = r;
         cell.dataset.c = c;
 
-        if (selected && selected.r === r && selected.c === c) cell.classList.add("selected");
+        if (selected && selected.r === r && selected.c === c) {
+          cell.classList.add("selected");
+        }
 
         const legal = moves.find(m => m.r === r && m.c === c);
         if (legal) {
@@ -191,6 +193,7 @@ const Game = (() => {
         cell.onclick = () => clickCell(r, c);
 
         cell.ondragover = ev => ev.preventDefault();
+
         cell.ondrop = ev => {
           ev.preventDefault();
           const from = dragFrom || JSON.parse(ev.dataTransfer.getData("text/plain"));
@@ -243,8 +246,9 @@ const Game = (() => {
     tryMove(selected, { r, c });
   }
 
-  function tryMove(from, to) {
+  async function tryMove(from, to) {
     const legal = moves.find(m => m.r === to.r && m.c === to.c);
+
     if (!legal) {
       selected = null;
       moves = [];
@@ -256,15 +260,36 @@ const Game = (() => {
     const moving = board[from.r][from.c];
 
     if (moving[1] === "p" && (to.r === 0 || to.r === 7)) {
-      promoteTo = prompt("승급 선택: q=퀸, r=룩, b=비숍, n=나이트", "q");
-      if (!["q","r","b","n"].includes(promoteTo)) promoteTo = "q";
+      promoteTo = await askPromotion();
     }
 
     if (localMode) {
       applyMove(from, to, promoteTo);
+      selected = null;
+      moves = [];
       render();
     } else if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type:"move", from, to, promoteTo }));
+      selected = null;
+      moves = [];
+      render();
+    }
+  }
+
+  function askPromotion() {
+    document.getElementById("promotionModal").classList.remove("hidden");
+
+    return new Promise(resolve => {
+      promotionResolve = resolve;
+    });
+  }
+
+  function choosePromotion(piece) {
+    document.getElementById("promotionModal").classList.add("hidden");
+
+    if (promotionResolve) {
+      promotionResolve(piece);
+      promotionResolve = null;
     }
   }
 
@@ -351,6 +376,7 @@ const Game = (() => {
             if (board[nr][nc][0] !== color) res.push({ r:nr, c:nc, type:"normal" });
             break;
           }
+
           nr += dr;
           nc += dc;
         }
@@ -362,13 +388,17 @@ const Game = (() => {
       const start = color === "w" ? 6 : 1;
 
       if (!board[r + dir]?.[c]) add(r + dir, c);
+
       if (r === start && !board[r + dir]?.[c] && !board[r + dir * 2]?.[c]) {
         add(r + dir * 2, c, "doublePawn");
       }
 
       for (const dc of [-1, 1]) {
         const target = board[r + dir]?.[c + dc];
-        if (target && target[0] !== color) add(r + dir, c + dc);
+
+        if (target && target[0] !== color) {
+          add(r + dir, c + dc);
+        }
 
         if (enPassant && enPassant.r === r + dir && enPassant.c === c + dc) {
           res.push({ r:r + dir, c:c + dc, type:"enPassant" });
@@ -396,6 +426,7 @@ const Game = (() => {
         if (!moved.wrH && board[7][5] === "" && board[7][6] === "" && board[7][7] === "wr") {
           add(7, 6, "castleKing");
         }
+
         if (!moved.wrA && board[7][1] === "" && board[7][2] === "" && board[7][3] === "" && board[7][0] === "wr") {
           add(7, 2, "castleQueen");
         }
@@ -405,6 +436,7 @@ const Game = (() => {
         if (!moved.brH && board[0][5] === "" && board[0][6] === "" && board[0][7] === "br") {
           add(0, 6, "castleKing");
         }
+
         if (!moved.brA && board[0][1] === "" && board[0][2] === "" && board[0][3] === "" && board[0][0] === "br") {
           add(0, 2, "castleQueen");
         }
@@ -419,6 +451,7 @@ const Game = (() => {
     makeRoom,
     joinOnline,
     backMenu,
-    reset
+    reset,
+    choosePromotion
   };
 })();
