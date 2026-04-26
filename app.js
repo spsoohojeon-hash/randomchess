@@ -420,7 +420,7 @@ function renderCard() {
   }
 
   area.innerHTML = `
-    <button class="cardBtn" onclick="Game.useCard()">
+    <button class="cardBtn" onclick="Game.activateCard()">
       카드 사용: ${CARD_NAMES[myCard]}
     </button>
   `;
