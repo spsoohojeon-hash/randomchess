@@ -141,7 +141,11 @@ function validMove(room, from, to, color) {
   }
 
   if (type === "n") {
-    return ((ar === 2 && ac === 1) || (ar === 1 && ac === 2)) ? "normal" : false;
+  if (room.wildHorse?.[color]) {
+    return (ar === 2 && ac === 2) ? "normal" : false;
+  }
+
+  return ((ar === 2 && ac === 1) || (ar === 1 && ac === 2)) ? "normal" : false;
   }
 
   if (type === "k") {
