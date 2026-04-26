@@ -153,6 +153,9 @@ ws.onmessage = e => {
         turn = data.turn;
         enPassant = data.enPassant || null;
         moved = data.moved || moved;
+        if (data.doubleMove && myColor) {
+  cardState.doubleMoveLeft = data.doubleMove[myColor];
+        }
 
         selected = null;
         moves = [];
