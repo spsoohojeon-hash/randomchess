@@ -5,7 +5,8 @@ const Game = (() => {
   let localMode = true, myColor = null, roomCode = null;
   let enPassant = null, dragFrom = null, touchFrom = null, ghost = null, promotionResolve = null;
   let moved = { wk:false, wrA:false, wrH:false, bk:false, brA:false, brH:false };
-
+  let myCard = null;
+  
   const imgs = {
     wp:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wp.png",
     wr:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wr.png",
@@ -84,6 +85,8 @@ const Game = (() => {
       }
 
       if (data.type === "start") {
+        myCard = data.card;
+renderCard();
         myColor = data.color;
         board = data.board;
         turn = data.turn;
