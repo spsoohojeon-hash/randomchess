@@ -665,6 +665,7 @@ renderCard();
     return res;
   }
 
+  
   function renderCard() {
     const area = document.getElementById("cardArea");
     if (!area) return;
@@ -672,60 +673,6 @@ renderCard();
     if (!myCard) {
       area.innerHTML = "";
       return;
-    }
-    function showNecroModal() {
-  const modal = document.getElementById("necroModal");
-  const list = document.getElementById("necroList");
-
-  list.innerHTML = "";
-
-  cardState.necroCapturedPieces.forEach((piece, index) => {
-    const btn = document.createElement("button");
-    btn.className = "necroBtn";
-    btn.textContent = pieceName(piece);
-    btn.onclick = () => chooseNecroPiece(index);
-    list.appendChild(btn);
-  });
-
-  modal.classList.remove("hidden");
-}
-
-function chooseNecroPiece(index) {
-  cardState.necroSelectedPiece = cardState.necroCapturedPieces[index];
-  cardState.activeMode = "necroPlace";
-  moves = getNecroPlaceMoves();
-selected = null;
-render();
-
-  document.getElementById("necroModal").classList.add("hidden");
-
-  alert("킹 주변 칸 클릭해라");
-}
-
-function pieceName(piece) {
-  const names = {
-    p: "폰",
-    r: "룩",
-    n: "나이트",
-    b: "비숍",
-    q: "퀸",
-    k: "킹"
-  };
-
-  return names[piece[1]];
-}
-    function findMyKing() {
-  const king = turn === "white" ? "wk" : "bk";
-
-  for (let r = 0; r < 8; r++) {
-    for (let c = 0; c < 8; c++) {
-      if (board[r][c] === king) {
-        return { r, c };
-      }
-    }
-  }
-
-  return null;
     }
 
     area.innerHTML = `
@@ -739,20 +686,99 @@ function pieceName(piece) {
     `;
   }
 
-  function activateCard() {
-  const usedCard = myCard;
-  const result = useCard(myCard, cardState);
-  alert(result.message);
+  function showNecroModal() {
+    const modal = document.getElementById("necroModal");
+    const list = document.getElementById("necroList");
 
-  if (!result.ok) return;
+    list.innerHTML = "";
 
-  if (usedCard === "necro") {
-    showNecroModal();
-    return;
+    cardState.necroCapturedPieces.forEach((piece, index) => {
+      const btn = document.createElement("button");
+      btn.className = "necroBtn";
+      btn.textContent = pieceName(piece);
+      btn.onclick = () => chooseNecroPiece(index);
+      list.appendChild(btn);
+    });
+
+    modal.classList.remove("hidden");
   }
 
-  myCard = null;
-  renderCard();
+  function chooseNecroPiece(index) {
+    cardState.necroSelectedPiece = cardState.necroCapturedPieces[index];
+    cardState.activeMode = "necroPlace";
+
+    moves = getNecroPlaceMoves();
+    selected = null;
+    render();
+
+    document.getElementById("necroModal").classList.add("hidden");
+    alert("킹 주변 칸 클릭해라");
+  }
+
+  function pieceName(piece) {
+    const names = {
+      p: "폰",
+      r: "룩",
+      n: "나이트",
+      b: "비숍",
+      q: "퀸",
+      k: "킹"
+    };
+
+    return names[piece[1]];
+  }
+
+  function findMyKing() {
+    const king = turn === "white" ? "wk" : "bk";
+
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        if (board[r][c] === king) {
+          return { r, c };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function getNecroPlaceMoves() {
+    const kingPos = findMyKing();
+    if (!kingPos) return [];
+
+    const result = [];
+
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+
+        const r = kingPos.r + dr;
+        const c = kingPos.c + dc;
+
+        if (r < 0 || r > 7 || c < 0 || c > 7) continue;
+        if (board[r][c]) continue;
+
+        result.push({ r, c, type: "normal" });
+      }
+    }
+
+    return result;
+  }
+
+  function activateCard() {
+    const usedCard = myCard;
+    const result = useCard(myCard, cardState);
+    alert(result.message);
+
+    if (!result.ok) return;
+
+    if (usedCard === "necro") {
+      showNecroModal();
+      return;
+    }
+
+    myCard = null;
+    renderCard();
   }
 
   return {
