@@ -77,6 +77,11 @@ const Game = (() => {
 
     ws.onmessage = e => {
       const data = JSON.parse(e.data);
+      if (data.type === "waiting") {
+  showGame();
+  status("매칭 찾는 중...");
+  document.getElementById("board").innerHTML = "";
+      }
 
       if (data.type === "start") {
         myColor = data.color;
@@ -146,23 +151,28 @@ const Game = (() => {
         cell.onclick = () => clickCell(r, c);
 
         cell.ontouchstart = ev => {
-          if (!canSelect(r, c)) return;
-          ev.preventDefault();
+  if (!canSelect(r, c)) return;
 
-          selected = { r, c };
-          touchFrom = { r, c };
-          moves = getMoves(r, c);
+  ev.preventDefault();
 
-          removeGhost();
-          ghost = document.createElement("img");
-          ghost.src = imgs[board[r][c]];
-          ghost.className = "dragGhost";
-          document.body.appendChild(ghost);
+  selected = { r, c };
+  touchFrom = { r, c };
+  moves = getMoves(r, c);
 
-          const t = ev.touches[0];
-          moveGhost(t.clientX, t.clientY);
-          
-        };
+  render(); 
+
+  const pieceNow = board[r][c];
+
+  removeGhost();
+
+  ghost = document.createElement("img");
+  ghost.src = imgs[pieceNow];
+  ghost.className = "dragGhost";
+  document.body.appendChild(ghost);
+
+  const t = ev.touches[0];
+  moveGhost(t.clientX, t.clientY);
+};
 
         cell.ontouchmove = ev => {
           if (!ghost) return;
