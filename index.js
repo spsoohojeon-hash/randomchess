@@ -227,9 +227,25 @@ wss.on("connection", ws => {
 
   ws.on("message", msg => {
     const data = JSON.parse(msg.toString());
-    if (data.type === "card") {
+if (data.type === "card") {
   const room = rooms[roomId];
   if (!room || room.over) return;
+
+  if (room.usedCards[color]) {
+    send(ws, {
+      type: "error",
+      message: "이미 카드를 사용했습니다."
+    });
+    return;
+  }
+
+  if (data.card !== room.cards[color]) {
+    send(ws, {
+      type: "error",
+      message: "네 카드가 아닙니다."
+    });
+    return;
+  }
 
   if (data.card === "doubleMove") {
     room.doubleMove[color] = 2;
@@ -239,8 +255,20 @@ wss.on("connection", ws => {
     room.wildHorse[color] = true;
   }
 
+  room.usedCards[color] = true;
+
+  broadcast(room, {
+    type: "update",
+    board: room.board,
+    turn: room.turn,
+    enPassant: room.enPassant,
+    moved: room.moved,
+    doubleMove: room.doubleMove,
+    wildHorse: room.wildHorse
+  });
+
   return;
-    }
+}
 
     if (data.type === "join") {
       roomId = data.roomId || "room1";
