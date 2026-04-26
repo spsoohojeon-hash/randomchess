@@ -334,7 +334,23 @@ wss.on("connection", ws => {
         moved: room.moved
       });
     }
+if (data.type === "cardUpdate") {
+  const room = rooms[roomId];
+  if (!room || room.over) return;
 
+  room.board = data.board;
+  room.turn = data.turn;
+  room.enPassant = data.enPassant || null;
+  room.moved = data.moved || room.moved;
+
+  broadcast(room, {
+    type: "update",
+    board: room.board,
+    turn: room.turn,
+    enPassant: room.enPassant,
+    moved: room.moved
+  });
+}
     if (data.type === "resign") {
       const room = rooms[roomId];
       if (!room || room.over) return;
