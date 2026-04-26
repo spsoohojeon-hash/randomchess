@@ -373,6 +373,7 @@ return;
       cardState.activeMode = null;
       selected = null;
       moves = [];
+      syncCardUpdate();
       render();
       return;
     }
