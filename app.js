@@ -1,4 +1,10 @@
-import { createCardState, useCard, getWildHorseMoves } from "./cards.js";
+import {
+  createCardState,
+  useCard,
+  getWildHorseMoves,
+  getCardName,
+  getCardDescription
+} from "./cards.js";
 
 const Game = (() => {
   const SERVER = "wss://randomchess.onrender.com";
@@ -664,19 +670,23 @@ const Game = (() => {
   };
 
   function renderCard() {
-    const area = document.getElementById("cardArea");
-    if (!area) return;
+  const area = document.getElementById("cardArea");
+  if (!area) return;
 
-    if (!myCard) {
-      area.innerHTML = "";
-      return;
-    }
+  if (!myCard) {
+    area.innerHTML = "";
+    return;
+  }
 
-    area.innerHTML = `
+  area.innerHTML = `
+    <div class="cardBox">
+      <div class="cardTitle">${getCardName(myCard)}</div>
+      <div class="cardDesc">${getCardDescription(myCard)}</div>
       <button class="cardBtn" onclick="Game.activateCard()">
-        카드 사용: ${CARD_NAMES[myCard]}
+        능력 사용
       </button>
-    `;
+    </div>
+  `;
   }
 
   function activateCard() {
