@@ -1,3 +1,4 @@
+import { createCardState, useCard, getWildHorseMoves } from "./cards.js";
 const Game = (() => {
   const SERVER = "wss://randomchess.onrender.com";
 
@@ -6,6 +7,7 @@ const Game = (() => {
   let enPassant = null, dragFrom = null, touchFrom = null, ghost = null, promotionResolve = null;
   let moved = { wk:false, wrA:false, wrH:false, bk:false, brA:false, brH:false };
   let myCard = null;
+  let cardState = createCardState();
   
   const imgs = {
     wp:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wp.png",
@@ -424,9 +426,10 @@ function renderCard() {
   `;
 }
 
-function useCard() {
-  alert("사용할 카드: " + CARD_NAMES[myCard]);
+function activateCard() {
+  const result = useCard(myCard, cardState);
+  alert(result.message);
 }
 
-return { startLocal, makeRoom, joinOnline, backMenu, reset, choosePromotion };    
+return { startLocal, makeRoom, joinOnline, backMenu, reset, choosePromotion, activateCard };    
 })();
