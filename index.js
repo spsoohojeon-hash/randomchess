@@ -51,15 +51,18 @@ function clearPath(board, from, to) {
     r += sr;
     c += sc;
   }
+
   return true;
 }
 
 function validMove(room, from, to, color) {
   const board = room.board;
   const piece = board[from.r]?.[from.c];
+
   if (!piece || piece[0] !== color[0]) return false;
 
   const target = board[to.r]?.[to.c];
+
   if (target && target[0] === color[0]) return false;
 
   const dr = to.r - from.r;
@@ -73,7 +76,15 @@ function validMove(room, from, to, color) {
     const start = color === "white" ? 6 : 1;
 
     if (dc === 0 && !target && dr === dir) return "normal";
-    if (dc === 0 && !target && from.r === start && dr === dir * 2 && !board[from.r + dir][from.c]) return "doublePawn";
+
+    if (
+      dc === 0 &&
+      !target &&
+      from.r === start &&
+      dr === dir * 2 &&
+      !board[from.r + dir][from.c]
+    ) return "doublePawn";
+
     if (ac === 1 && dr === dir && target) return "normal";
 
     if (
@@ -97,21 +108,13 @@ function validMove(room, from, to, color) {
     if (ar <= 1 && ac <= 1) return "normal";
 
     if (color === "white" && from.r === 7 && from.c === 4 && dr === 0) {
-      if (dc === 2 && !room.moved.wk && !room.moved.wrH && board[7][5] === "" && board[7][6] === "" && board[7][7] === "wr") {
-        return "castleKing";
-      }
-      if (dc === -2 && !room.moved.wk && !room.moved.wrA && board[7][1] === "" && board[7][2] === "" && board[7][3] === "" && board[7][0] === "wr") {
-        return "castleQueen";
-      }
+      if (dc === 2 && !room.moved.wk && !room.moved.wrH && board[7][5] === "" && board[7][6] === "" && board[7][7] === "wr") return "castleKing";
+      if (dc === -2 && !room.moved.wk && !room.moved.wrA && board[7][1] === "" && board[7][2] === "" && board[7][3] === "" && board[7][0] === "wr") return "castleQueen";
     }
 
     if (color === "black" && from.r === 0 && from.c === 4 && dr === 0) {
-      if (dc === 2 && !room.moved.bk && !room.moved.brH && board[0][5] === "" && board[0][6] === "" && board[0][7] === "br") {
-        return "castleKing";
-      }
-      if (dc === -2 && !room.moved.bk && !room.moved.brA && board[0][1] === "" && board[0][2] === "" && board[0][3] === "" && board[0][0] === "br") {
-        return "castleQueen";
-      }
+      if (dc === 2 && !room.moved.bk && !room.moved.brH && board[0][5] === "" && board[0][6] === "" && board[0][7] === "br") return "castleKing";
+      if (dc === -2 && !room.moved.bk && !room.moved.brA && board[0][1] === "" && board[0][2] === "" && board[0][3] === "" && board[0][0] === "br") return "castleQueen";
     }
 
     return false;
@@ -141,6 +144,7 @@ wss.on("connection", ws => {
       roomId = data.roomId || "room1";
 
       if (!rooms[roomId]) rooms[roomId] = createRoom();
+
       const room = rooms[roomId];
 
       if (room.players.length >= 2) {
@@ -163,6 +167,7 @@ wss.on("connection", ws => {
 
     if (data.type === "move") {
       const room = rooms[roomId];
+
       if (!room || room.over) return;
 
       if (room.turn !== color) {
@@ -219,11 +224,13 @@ wss.on("connection", ws => {
 
       if (captured && captured[1] === "k") {
         room.over = true;
+
         broadcast(room, {
           type: "gameover",
           winner: color,
           board
         });
+
         return;
       }
 
@@ -240,6 +247,7 @@ wss.on("connection", ws => {
 
     if (data.type === "reset") {
       const room = rooms[roomId];
+
       if (!room) return;
 
       room.board = createBoard();
@@ -263,12 +271,17 @@ wss.on("connection", ws => {
 
   ws.on("close", () => {
     const room = rooms[roomId];
+
     if (!room) return;
 
     room.players = room.players.filter(p => p.ws !== ws);
+
     if (room.players.length === 0) delete rooms[roomId];
   });
 });
 
 const PORT = process.env.PORT || 3000;
-server.listen(PORT, () => console.log("Server running on", PORT));
+
+server.listen(PORT, () => {
+  console.log("Server running on", PORT);
+});
