@@ -322,6 +322,8 @@ const Game = (() => {
   board[r][c] = color + type;
 
   cardState.necroUsed = true;
+      myCard = null;
+renderCard();
   cardState.necroSelectedPiece = null;
   cardState.necroCapturedPieces = [];
   cardState.activeMode = null;
