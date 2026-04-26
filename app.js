@@ -712,6 +712,19 @@ function pieceName(piece) {
 
   return names[piece[1]];
 }
+    function findMyKing() {
+  const king = turn === "white" ? "wk" : "bk";
+
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      if (board[r][c] === king) {
+        return { r, c };
+      }
+    }
+  }
+
+  return null;
+    }
 
     area.innerHTML = `
       <div class="cardBox">
