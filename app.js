@@ -765,9 +765,25 @@ return;
     return res;
   }
 
-  function renderCard() {
+   
+   function renderCard() {
     const area = document.getElementById("cardArea");
     if (!area) return;
+
+    const spaceTargets = getSpaceTravelPieces();
+
+    if (cardState.spaceTravelEnabled && spaceTargets.length > 0) {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">우주여행 준비됨</div>
+          <div class="cardDesc">상대 진영 코너에 도착한 내 기물을 빈칸으로 텔레포트합니다.</div>
+          <button class="cardBtn" onclick="Game.activateSpaceTravel()">
+            텔레포트 사용
+          </button>
+        </div>
+      `;
+      return;
+    }
 
     if (!myCard) {
       area.innerHTML = "";
@@ -783,6 +799,70 @@ return;
         </button>
       </div>
     `;
+   }
+  function activateSpaceTravel() {
+    const targets = getSpaceTravelPieces();
+
+    if (targets.length === 0) {
+      alert("텔레포트 가능한 기물이 없습니다.");
+      return;
+    }
+
+    cardState.activeMode = "spacePick";
+    cardState.selectedSquares = [];
+
+    selected = null;
+    moves = targets;
+
+    alert("텔레포트할 코너 기물을 선택하세요.");
+    render();
+  }
+
+  function getSpaceTravelPieces() {
+    if (!cardState.spaceTravelEnabled) return [];
+
+    if (!localMode && myColor && turn !== myColor) {
+      return [];
+    }
+
+    const color = turn[0];
+    const result = [];
+
+    const corners = color === "w"
+      ? [{ r: 0, c: 0 }, { r: 0, c: 7 }]
+      : [{ r: 7, c: 0 }, { r: 7, c: 7 }];
+
+    for (const pos of corners) {
+      const piece = board[pos.r]?.[pos.c];
+
+      if (piece && piece[0] === color && piece[1] !== "k") {
+        result.push({
+          r: pos.r,
+          c: pos.c,
+          type: "normal"
+        });
+      }
+    }
+
+    return result;
+  }
+
+  function getEmptySquares() {
+    const result = [];
+
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        if (!board[r][c]) {
+          result.push({
+            r,
+            c,
+            type: "normal"
+          });
+        }
+      }
+    }
+
+    return result;
   }
 
   function showNecroModal() {
@@ -893,7 +973,8 @@ function activateCard() {
     backMenu,
     resign,
     choosePromotion,
-    activateCard
+    activateCard,
+    activateSpaceTravel
   };
 })();
 
