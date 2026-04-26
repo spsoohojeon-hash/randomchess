@@ -187,3 +187,19 @@ img {
   padding: 14px;
   font-size: 18px;
 }
+#cardArea {
+  margin: 10px auto;
+  max-width: 500px;
+}
+
+.cardBtn {
+  width: 90%;
+  max-width: 360px;
+  padding: 14px;
+  font-size: 18px;
+  font-weight: 900;
+  border-radius: 14px;
+  background: #3b2f45;
+  border: 2px solid #c29273;
+  color: #f5ecd7;
+}
