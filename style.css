@@ -1,9 +1,10 @@
 * {
   box-sizing: border-box;
+  margin: 0;
+  padding: 0;
 }
 
 body {
-  margin: 0;
   background: #17182b;
   color: #f5ecd7;
   font-family: system-ui, sans-serif;
@@ -20,6 +21,7 @@ body {
   flex-direction: column;
   justify-content: center;
   align-items: center;
+  gap: 14px;
   padding: 28px;
 }
 
@@ -29,7 +31,6 @@ body {
 
 h1 {
   font-size: 38px;
-  margin: 10px 0;
 }
 
 p {
@@ -40,7 +41,7 @@ p {
   width: 100%;
   max-width: 460px;
   padding: 22px;
-  margin: 18px 0;
+  margin: 12px 0;
   font-size: 22px;
   font-weight: 900;
   border-radius: 18px;
@@ -113,15 +114,15 @@ header {
 }
 
 .light {
-  background: #e8e8e8;
+  background: #eeeed2;
 }
 
 .dark {
-  background: #666;
+  background: #769656;
 }
 
 .selected {
-  outline: 4px solid #ffdf4d;
+  outline: 4px solid #f6f669;
   z-index: 2;
 }
 
@@ -130,12 +131,12 @@ header {
   width: 28%;
   height: 28%;
   border-radius: 50%;
-  background: rgba(0, 180, 0, 0.55);
+  background: rgba(20, 85, 30, 0.45);
   position: absolute;
 }
 
 .capture {
-  background: #b95b5b !important;
+  background: #baca44 !important;
 }
 
 img {
@@ -143,6 +144,37 @@ img {
   height: 90%;
   object-fit: contain;
   user-select: none;
-  -webkit-user-drag: none;
+  -webkit-user-drag: auto;
+  pointer-events: auto;
   z-index: 1;
+}
+
+#promotionModal {
+  position: fixed;
+  inset: 0;
+  background: rgba(0,0,0,0.65);
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  z-index: 99;
+}
+
+.promoBox {
+  background: #222;
+  border: 3px solid #769656;
+  border-radius: 18px;
+  padding: 24px;
+  color: white;
+}
+
+.promoBox h3 {
+  margin-bottom: 12px;
+}
+
+.promoBox button {
+  display: block;
+  width: 180px;
+  margin: 10px;
+  padding: 14px;
+  font-size: 18px;
 }
