@@ -54,10 +54,39 @@
   </div>
 </div>
 
-<div id="necroModal" class="hidden">
+<div id="necroModal" class="hidden cardSelectModal">
   <div class="promoBox">
-    <h3>부활할 기물 선택</h3>
+    <h3>네크로맨서 - 부활할 기물 선택</h3>
+    <p class="modalDesc">내가 잡은 상대 기물 중 하나를 선택하세요.</p>
     <div id="necroList"></div>
+    <button onclick="Game.cancelCardSelection()">취소</button>
+  </div>
+</div>
+
+<div id="exorcismModal" class="hidden cardSelectModal">
+  <div class="promoBox">
+    <h3>퇴마(물리) - 비숍 선택</h3>
+    <p class="modalDesc">능력을 사용할 내 비숍을 선택하세요.</p>
+    <div id="exorcismList"></div>
+    <button onclick="Game.cancelCardSelection()">취소</button>
+  </div>
+</div>
+
+<div id="reactionaryModal" class="hidden cardSelectModal">
+  <div class="promoBox">
+    <h3>반동분자 - 왕룩 선택</h3>
+    <p class="modalDesc">킹처럼 취급할 내 룩을 선택하세요.</p>
+    <div id="reactionaryList"></div>
+    <button onclick="Game.cancelCardSelection()">취소</button>
+  </div>
+</div>
+
+<div id="spaceModal" class="hidden cardSelectModal">
+  <div class="promoBox">
+    <h3>우주여행 - 텔레포트 기물 선택</h3>
+    <p class="modalDesc">상대 진영 코너에 도착한 내 기물을 선택하세요.</p>
+    <div id="spaceList"></div>
+    <button onclick="Game.cancelCardSelection()">취소</button>
   </div>
 </div>
 
