@@ -63,6 +63,18 @@ function createRoom() {
     kingReturn: {
       white: null,
       black: null
+    },
+    reactionary: {
+      white: {
+        active: false,
+        rook: null,
+        checks: 0
+      },
+      black: {
+        active: false,
+        rook: null,
+        checks: 0
+      }
     }
   };
 }
@@ -73,6 +85,10 @@ function send(ws, data) {
 
 function broadcast(room, data) {
   room.players.forEach(p => send(p.ws, data));
+}
+
+function otherColor(color) {
+  return color === "white" ? "black" : "white";
 }
 
 function clearPath(board, from, to) {
@@ -247,6 +263,156 @@ function updateMoved(room, piece, from) {
   if (piece === "br" && from.r === 0 && from.c === 7) room.moved.brH = true;
 }
 
+function isReactionaryRook(room, color, r, c) {
+  const state = room.reactionary[color];
+
+  if (!state || !state.active || !state.rook) return false;
+
+  return state.rook.r === r && state.rook.c === c;
+}
+
+function canAttackSquare(room, from, to, color) {
+  const board = room.board;
+  const piece = board[from.r]?.[from.c];
+
+  if (!piece || piece[0] !== color[0]) return false;
+
+  const dr = to.r - from.r;
+  const dc = to.c - from.c;
+  const ar = Math.abs(dr);
+  const ac = Math.abs(dc);
+  const type = piece[1];
+
+  if (type === "p") {
+    const dir = color === "white" ? -1 : 1;
+    return ar === 1 && dr === dir;
+  }
+
+  if (type === "r") {
+    return (dr === 0 || dc === 0) && clearPath(board, from, to);
+  }
+
+  if (type === "b") {
+    return ar === ac && clearPath(board, from, to);
+  }
+
+  if (type === "q") {
+    return (dr === 0 || dc === 0 || ar === ac) && clearPath(board, from, to);
+  }
+
+  if (type === "n") {
+    if (room.wildHorse?.[color]) {
+      return ar === 2 && ac === 2;
+    }
+
+    return (ar === 2 && ac === 1) || (ar === 1 && ac === 2);
+  }
+
+  if (type === "k") {
+    const kr = room.kingReturn?.[color];
+
+    if (kr && kr.turns > 0) {
+      if (kr.mode === "bn" || kr.mode === "qn") {
+        if ((ar === 2 && ac === 1) || (ar === 1 && ac === 2)) {
+          return true;
+        }
+      }
+
+      if (kr.mode === "bn") {
+        if (ar === ac && clearPath(board, from, to)) {
+          return true;
+        }
+      }
+
+      if (kr.mode === "q" || kr.mode === "qn") {
+        if ((dr === 0 || dc === 0 || ar === ac) && clearPath(board, from, to)) {
+          return true;
+        }
+      }
+    }
+
+    return ar <= 1 && ac <= 1;
+  }
+
+  return false;
+}
+
+function isSquareAttacked(room, target, byColor) {
+  const board = room.board;
+
+  for (let r = 0; r < 8; r++) {
+    for (let c = 0; c < 8; c++) {
+      const piece = board[r][c];
+
+      if (!piece || piece[0] !== byColor[0]) continue;
+
+      if (canAttackSquare(room, { r, c }, target, byColor)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
+function updateReactionaryRookAfterMove(room, color, from, to, moveType) {
+  const state = room.reactionary[color];
+
+  if (!state || !state.active || !state.rook) return;
+
+  if (state.rook.r === from.r && state.rook.c === from.c) {
+    state.rook = { r: to.r, c: to.c };
+  }
+
+  if (moveType === "castleKing") {
+    const row = color === "white" ? 7 : 0;
+
+    if (state.rook.r === row && state.rook.c === 7) {
+      state.rook = { r: row, c: 5 };
+    }
+  }
+
+  if (moveType === "castleQueen") {
+    const row = color === "white" ? 7 : 0;
+
+    if (state.rook.r === row && state.rook.c === 0) {
+      state.rook = { r: row, c: 3 };
+    }
+  }
+}
+
+function checkReactionaryThreat(room, attackerColor) {
+  const defender = otherColor(attackerColor);
+  const state = room.reactionary[defender];
+
+  if (!state || !state.active || !state.rook) return null;
+
+  if (isSquareAttacked(room, state.rook, attackerColor)) {
+    state.checks++;
+
+    if (state.checks >= 3) {
+      room.over = true;
+      return attackerColor;
+    }
+  }
+
+  return null;
+}
+
+function makeUpdatePayload(room) {
+  return {
+    type: "update",
+    board: room.board,
+    turn: room.turn,
+    enPassant: room.enPassant,
+    moved: room.moved,
+    doubleMove: room.doubleMove,
+    wildHorse: room.wildHorse,
+    kingReturn: room.kingReturn,
+    reactionary: room.reactionary
+  };
+}
+
 wss.on("connection", ws => {
   let roomId = null;
   let color = null;
@@ -284,16 +450,7 @@ wss.on("connection", ws => {
 
       room.usedCards[color] = true;
 
-      broadcast(room, {
-        type: "update",
-        board: room.board,
-        turn: room.turn,
-        enPassant: room.enPassant,
-        moved: room.moved,
-        doubleMove: room.doubleMove,
-        wildHorse: room.wildHorse,
-        kingReturn: room.kingReturn
-      });
+      broadcast(room, makeUpdatePayload(room));
 
       return;
     }
@@ -360,12 +517,39 @@ wss.on("connection", ws => {
       const moving = board[from.r][from.c];
       let captured = board[to.r][to.c];
 
+      const opponent = otherColor(color);
+
+      if (captured && isReactionaryRook(room, opponent, to.r, to.c)) {
+        room.over = true;
+
+        broadcast(room, {
+          type:"gameover",
+          winner: color,
+          board
+        });
+
+        return;
+      }
+
       updateMoved(room, moving, from);
       room.enPassant = null;
 
       if (moveType === "enPassant") {
         const capRow = color === "white" ? to.r + 1 : to.r - 1;
         captured = board[capRow][to.c];
+
+        if (captured && isReactionaryRook(room, opponent, capRow, to.c)) {
+          room.over = true;
+
+          broadcast(room, {
+            type:"gameover",
+            winner: color,
+            board
+          });
+
+          return;
+        }
+
         board[capRow][to.c] = "";
       }
 
@@ -398,7 +582,7 @@ wss.on("connection", ws => {
         board[to.r][to.c] = moving[0] + promoteTo;
       }
 
-      if (captured && captured[1] === "k") {
+      if (captured && captured[1] === "k" && !room.reactionary[opponent].active) {
         room.over = true;
 
         broadcast(room, {
@@ -418,6 +602,20 @@ wss.on("connection", ws => {
         }
       }
 
+      updateReactionaryRookAfterMove(room, color, from, to, moveType);
+
+      const reactionaryWinner = checkReactionaryThreat(room, color);
+
+      if (reactionaryWinner) {
+        broadcast(room, {
+          type: "gameover",
+          winner: reactionaryWinner,
+          board
+        });
+
+        return;
+      }
+
       if (room.doubleMove[color] > 1) {
         room.doubleMove[color]--;
       } else {
@@ -425,16 +623,7 @@ wss.on("connection", ws => {
         room.turn = room.turn === "white" ? "black" : "white";
       }
 
-      broadcast(room, {
-        type:"update",
-        board,
-        turn: room.turn,
-        enPassant: room.enPassant,
-        moved: room.moved,
-        doubleMove: room.doubleMove,
-        wildHorse: room.wildHorse,
-        kingReturn: room.kingReturn
-      });
+      broadcast(room, makeUpdatePayload(room));
     }
 
     if (data.type === "cardUpdate") {
@@ -450,16 +639,11 @@ wss.on("connection", ws => {
         room.kingReturn[color] = data.kingReturn;
       }
 
-      broadcast(room, {
-        type: "update",
-        board: room.board,
-        turn: room.turn,
-        enPassant: room.enPassant,
-        moved: room.moved,
-        doubleMove: room.doubleMove,
-        wildHorse: room.wildHorse,
-        kingReturn: room.kingReturn
-      });
+      if ("reactionary" in data) {
+        room.reactionary[color] = data.reactionary;
+      }
+
+      broadcast(room, makeUpdatePayload(room));
     }
 
     if (data.type === "resign") {
