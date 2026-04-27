@@ -174,6 +174,7 @@ img {
   border-radius: 18px;
   padding: 24px;
   color: white;
+  max-width: 92vw;
 }
 
 .promoBox h3 {
@@ -182,11 +183,13 @@ img {
 
 .promoBox button {
   display: block;
-  width: 180px;
-  margin: 10px;
+  width: 220px;
+  max-width: 80vw;
+  margin: 10px auto;
   padding: 14px;
   font-size: 18px;
 }
+
 #cardArea {
   margin: 10px auto;
   max-width: 500px;
@@ -203,6 +206,7 @@ img {
   border: 2px solid #c29273;
   color: #f5ecd7;
 }
+
 .cardBox {
   margin: 10px auto;
   max-width: 420px;
@@ -224,41 +228,69 @@ img {
   margin-bottom: 10px;
   line-height: 1.4;
 }
-.cardBox {
-  margin: 10px auto;
-  max-width: 420px;
-  padding: 14px;
-  border: 2px solid #c29273;
-  border-radius: 16px;
-  background: #2b2433;
-}
 
-.cardTitle {
-  font-size: 20px;
-  font-weight: 900;
-  margin-bottom: 8px;
-}
-
-.cardDesc {
-  font-size: 14px;
-  color: #ddd;
-  margin-bottom: 10px;
-  line-height: 1.4;
-}
-#necroModal {
+.cardSelectModal {
   position: fixed;
   inset: 0;
   background: rgba(0,0,0,0.65);
   display: flex;
   justify-content: center;
   align-items: center;
-  z-index: 100;
+  z-index: 120;
 }
 
-.necroBtn {
+.modalDesc {
+  margin: 8px 0 12px;
+  color: #ddd;
+  font-size: 14px;
+}
+
+.selectBtn {
   display: block;
-  width: 200px;
-  margin: 10px;
+  width: 220px;
+  margin: 10px auto;
   padding: 14px;
   font-size: 18px;
+  font-weight: 900;
+  border-radius: 12px;
+  border: 2px solid #c29273;
+  background: #3b2f45;
+  color: #f5ecd7;
+}
+
+.selectBtn:hover {
+  filter: brightness(1.15);
+}
+
+.exorcismCandidate {
+  outline: 4px solid #a855f7;
+  box-shadow: inset 0 0 18px #a855f7;
+  z-index: 3;
+}
+
+.reactionaryCandidate {
+  outline: 4px solid #38bdf8;
+  box-shadow: inset 0 0 18px #38bdf8;
+  z-index: 3;
+}
+
+.spaceCandidate {
+  outline: 4px solid #22c55e;
+  box-shadow: inset 0 0 18px #22c55e;
+  z-index: 3;
+}
+
+.necroPlaceCandidate {
+  outline: 4px solid #f97316;
+  box-shadow: inset 0 0 18px #f97316;
+  z-index: 3;
+}
+
+.equalityCastleMove::after {
+  content: "";
+  width: 38%;
+  height: 38%;
+  border-radius: 50%;
+  background: rgba(168, 85, 247, 0.6);
+  position: absolute;
 }
