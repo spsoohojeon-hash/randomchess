@@ -4,6 +4,17 @@
   <meta charset="UTF-8">
   <title>랜덤능력체스</title>
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+  <link rel="manifest" href="manifest.json">
+
+  <meta name="theme-color" content="#17182b">
+  <meta name="mobile-web-app-capable" content="yes">
+
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <meta name="apple-mobile-web-app-title" content="랜덤체스">
+
+  <link rel="apple-touch-icon" href="icon-192.png">
   <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -42,12 +53,25 @@
     <button onclick="Game.choosePromotion('n')">나이트</button>
   </div>
 </div>
+
 <div id="necroModal" class="hidden">
   <div class="promoBox">
     <h3>부활할 기물 선택</h3>
     <div id="necroList"></div>
   </div>
 </div>
+
 <script type="module" src="app.js"></script>
+
+<script>
+  if ("serviceWorker" in navigator) {
+    window.addEventListener("load", () => {
+      navigator.serviceWorker.register("sw.js")
+        .then(() => console.log("Service Worker registered"))
+        .catch(err => console.log("Service Worker error:", err));
+    });
+  }
+</script>
+
 </body>
 </html>
