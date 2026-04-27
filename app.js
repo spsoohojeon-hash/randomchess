@@ -5,6 +5,7 @@ import {
   getCardName,
   getCardDescription
 } from "./cards.js";
+
 window.onerror = function(msg) {
   alert("에러: " + msg);
 };
@@ -54,16 +55,18 @@ const Game = (() => {
     moved = { wk:false, wrA:false, wrH:false, bk:false, brA:false, brH:false };
     cardState = createCardState();
   }
+
   function syncCardUpdate() {
-  if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: "cardUpdate",
-      board,
-      turn,
-      enPassant,
-      moved
-    }));
-  }
+    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: "cardUpdate",
+        board,
+        turn,
+        enPassant,
+        moved,
+        kingReturn: cardState.kingReturn
+      }));
+    }
   }
 
   function showGame() {
@@ -110,22 +113,22 @@ const Game = (() => {
 
     ws = new WebSocket(SERVER);
 
-ws.onopen = () => {
-  ws.send(JSON.stringify({
-    type: "join",
-    roomId: roomCode
-  }));
-};
+    ws.onopen = () => {
+      ws.send(JSON.stringify({
+        type: "join",
+        roomId: roomCode
+      }));
+    };
 
-ws.onerror = () => {
-  console.log("서버 연결 에러");
-};
+    ws.onerror = () => {
+      console.log("서버 연결 에러");
+    };
 
-ws.onclose = () => {
-  console.log("서버 연결 끊김");
-};
+    ws.onclose = () => {
+      console.log("서버 연결 끊김");
+    };
 
-ws.onmessage = e => {
+    ws.onmessage = e => {
       const data = JSON.parse(e.data);
 
       if (data.type === "waiting") {
@@ -148,31 +151,38 @@ ws.onmessage = e => {
         showGame();
         render();
         return;
-      }if (data.type === "update") {
+      }
+
+      if (data.type === "update") {
         board = data.board;
         turn = data.turn;
         enPassant = data.enPassant || null;
         moved = data.moved || moved;
+
         if (data.doubleMove && myColor) {
-  cardState.doubleMoveLeft = data.doubleMove[myColor];
+          cardState.doubleMoveLeft = data.doubleMove[myColor];
         }
+
         if (data.wildHorse && myColor) {
-  cardState.wildHorse = data.wildHorse[myColor];
+          cardState.wildHorse = data.wildHorse[myColor];
+        }
+
+        if (data.kingReturn && myColor) {
+          cardState.kingReturn = data.kingReturn[myColor] || null;
         }
 
         selected = null;
         moves = [];
         removeGhost();
+        renderCard();
         render();
         return;
       }
 
       if (data.type === "gameover") {
         board = data.board;
-
         removeGhost();
         render();
-
         alert("게임 끝! 승자: " + data.winner);
         return;
       }
@@ -186,10 +196,6 @@ ws.onmessage = e => {
         alert(data.message);
         return;
       }
-    };
-
-    ws.onerror = () => {
-      alert("서버 연결 에러");
     };
   }
 
@@ -264,7 +270,9 @@ ws.onmessage = e => {
 
           const t = ev.touches[0];
           moveGhost(t.clientX, t.clientY);
-        };cell.ontouchmove = ev => {
+        };
+
+        cell.ontouchmove = ev => {
           if (!ghost) return;
           ev.preventDefault();
 
@@ -320,7 +328,9 @@ ws.onmessage = e => {
 
     return true;
   }
-if (cardState.activeMode === "spacePick") {
+
+  function clickCell(r, c) {
+    if (cardState.activeMode === "spacePick") {
       const piece = board[r]?.[c];
 
       if (!piece || piece[0] !== turn[0]) {
@@ -382,7 +392,7 @@ if (cardState.activeMode === "spacePick") {
       render();
       return;
     }
-  function clickCell(r, c) {
+
     if (cardState.activeMode === "necroPlace") {
       if (board[r][c]) {
         alert("빈칸만 가능");
@@ -420,11 +430,9 @@ if (cardState.activeMode === "spacePick") {
 
       turn = turn === "white" ? "black" : "white";
 
-syncCardUpdate();
-render();
-return;
-
-      
+      syncCardUpdate();
+      render();
+      return;
     }
 
     if (cardState.activeMode === "exorcism") {
@@ -440,6 +448,7 @@ return;
       cardState.activeMode = null;
       selected = null;
       moves = [];
+
       syncCardUpdate();
       render();
       return;
@@ -539,7 +548,9 @@ return;
       touchFrom = null;
       render();
     }
-  }function askPromotion() {
+  }
+
+  function askPromotion() {
     document.getElementById("promotionModal").classList.remove("hidden");
 
     return new Promise(resolve => {
@@ -605,6 +616,14 @@ return;
     if (captured && captured[1] === "k") {
       alert("게임 끝! 승자: " + turn);
       return;
+    }
+
+    if (moving[1] === "k" && cardState.kingReturn && cardState.kingReturn.turns > 0) {
+      cardState.kingReturn.turns--;
+
+      if (cardState.kingReturn.turns <= 0) {
+        cardState.kingReturn = null;
+      }
     }
 
     if (cardState.doubleMoveLeft > 1) {
@@ -741,6 +760,37 @@ return;
         }
       }
 
+      if (cardState.kingReturn && cardState.kingReturn.turns > 0) {
+        const mode = cardState.kingReturn.mode;
+
+        const addKingReturnMove = (dr, dc) => {
+          const nr = r + dr;
+          const nc = c + dc;
+
+          if (nr < 0 || nr > 7 || nc < 0 || nc > 7) return;
+
+          const target = board[nr][nc];
+          if (!target || target[0] !== color) {
+            res.push({ r: nr, c: nc, type: "kingReturn" });
+          }
+        };
+
+        if (mode === "bn" || mode === "qn") {
+          [
+            [2,1],[1,2],[-1,2],[-2,1],
+            [-2,-1],[-1,-2],[1,-2],[2,-1]
+          ].forEach(([dr, dc]) => addKingReturnMove(dr, dc));
+        }
+
+        if (mode === "bn") {
+          slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
+        }
+
+        if (mode === "q" || mode === "qn") {
+          slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
+        }
+      }
+
       if (color === "w" && r === 7 && c === 4 && !moved.wk) {
         if (!moved.wrH && board[7][5] === "" && board[7][6] === "" && board[7][7] === "wr") {
           add(7, 6, "castleKing");
@@ -765,8 +815,7 @@ return;
     return res;
   }
 
-   
-   function renderCard() {
+  function renderCard() {
     const area = document.getElementById("cardArea");
     if (!area) return;
 
@@ -799,7 +848,8 @@ return;
         </button>
       </div>
     `;
-   }
+  }
+
   function activateSpaceTravel() {
     const targets = getSpaceTravelPieces();
 
@@ -944,27 +994,106 @@ return;
     return result;
   }
 
-function activateCard() {
-  const usedCard = myCard;
-  const result = useCard(myCard, cardState);
-  alert(result.message);
+  function getKingReturnData(score) {
+    if (score >= 3 && score <= 6) {
+      return { mode: "bn", turns: 15, score };
+    }
 
-  if (!result.ok) return;
+    if (score >= 7 && score <= 10) {
+      return { mode: "q", turns: 5, score };
+    }
 
-  if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
-    ws.send(JSON.stringify({
-      type: "card",
-      card: usedCard
-    }));
+    if (score >= 11 && score <= 14) {
+      return { mode: "q", turns: 10, score };
+    }
+
+    if (score >= 15 && score <= 18) {
+      return { mode: "q", turns: 15, score };
+    }
+
+    if (score >= 19 && score <= 22) {
+      return { mode: "qn", turns: 15, score };
+    }
+
+    return null;
   }
 
-  if (usedCard === "necro") {
-    showNecroModal();
+  function activateKingReturn() {
+    const values = {
+      q: 9,
+      r: 5,
+      b: 3,
+      n: 3
+    };
+
+    let score = 0;
+
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const piece = board[r][c];
+
+        if (!piece) continue;
+        if (piece[0] !== turn[0]) continue;
+        if (piece[1] === "k") continue;
+        if (piece[1] === "p") continue;
+
+        score += values[piece[1]] || 0;
+        board[r][c] = "";
+      }
+    }
+
+    if (score >= 23) {
+      alert("왕의 귀환 실패! 23점 이상이라 패배");
+
+      if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: "resign"
+        }));
+      }
+
+      return;
+    }
+
+    cardState.kingReturn = getKingReturnData(score);
+
+    if (cardState.kingReturn) {
+      alert(`왕의 귀환 발동! 점수 ${score}, ${cardState.kingReturn.turns}턴 강화`);
+    } else {
+      alert(`왕의 귀환 발동! 점수 ${score}, 강화 없음`);
+    }
+
+    turn = turn === "white" ? "black" : "white";
+
+    syncCardUpdate();
+    renderCard();
+    render();
   }
 
-  myCard = null;
-  renderCard();
-}
+  function activateCard() {
+    const usedCard = myCard;
+    const result = useCard(myCard, cardState);
+    alert(result.message);
+
+    if (!result.ok) return;
+
+    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: "card",
+        card: usedCard
+      }));
+    }
+
+    if (usedCard === "necro") {
+      showNecroModal();
+    }
+
+    if (usedCard === "kingReturn") {
+      activateKingReturn();
+    }
+
+    myCard = null;
+    renderCard();
+  }
 
   return {
     startLocal,
