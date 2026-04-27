@@ -71,8 +71,10 @@ function createBoard() {
   return [
     ["br","bn","bb","bq","bk","bb","bn","br"],
     ["bp","bp","bp","bp","bp","bp","bp","bp"],
-    ["","","","","","","",""], ["","","","","","","",""],
-    ["","","","","","","",""], ["","","","","","","",""],
+    ["","","","","","","",""],
+    ["","","","","","","",""],
+    ["","","","","","","",""],
+    ["","","","","","","",""],
     ["wp","wp","wp","wp","wp","wp","wp","wp"],
     ["wr","wn","wb","wq","wk","wb","wn","wr"]
   ];
@@ -117,6 +119,14 @@ function createRoom() {
         rook: null,
         checks: 0
       }
+    },
+    capturedBy: {
+      white: [],
+      black: []
+    },
+    spaceTravel: {
+      white: false,
+      black: false
     }
   };
 }
@@ -148,6 +158,57 @@ function clearPath(board, from, to) {
   return true;
 }
 
+function hasEquality(room, color) {
+  return room.cards?.[color] === "equality";
+}
+
+function validEqualityCastle(room, from, to, color) {
+  if (!hasEquality(room, color)) return false;
+
+  const board = room.board;
+  const piece = board[from.r]?.[from.c];
+
+  if (!piece || piece[0] !== color[0]) return false;
+
+  const homeRow = color === "white" ? 7 : 0;
+
+  if (from.r !== homeRow || to.r !== homeRow) return false;
+
+  const dr = to.r - from.r;
+  const dc = to.c - from.c;
+
+  if (dr !== 0 || Math.abs(dc) !== 2) return false;
+  if (board[to.r]?.[to.c]) return false;
+
+  if (dc === 2) {
+    if (color === "white" && room.moved.wrH) return false;
+    if (color === "black" && room.moved.brH) return false;
+
+    if (board[homeRow][7] !== color[0] + "r") return false;
+
+    for (let c = from.c + 1; c < 7; c++) {
+      if (board[homeRow][c]) return false;
+    }
+
+    return "equalityCastleKing";
+  }
+
+  if (dc === -2) {
+    if (color === "white" && room.moved.wrA) return false;
+    if (color === "black" && room.moved.brA) return false;
+
+    if (board[homeRow][0] !== color[0] + "r") return false;
+
+    for (let c = 1; c < from.c; c++) {
+      if (board[homeRow][c]) return false;
+    }
+
+    return "equalityCastleQueen";
+  }
+
+  return false;
+}
+
 function validMove(room, from, to, color) {
   const board = room.board;
   const piece = board[from.r]?.[from.c];
@@ -156,6 +217,9 @@ function validMove(room, from, to, color) {
 
   const target = board[to.r]?.[to.c];
   if (target && target[0] === color[0]) return false;
+
+  const equalityCastle = validEqualityCastle(room, from, to, color);
+  if (equalityCastle) return equalityCastle;
 
   const dr = to.r - from.r;
   const dc = to.c - from.c;
@@ -421,6 +485,18 @@ function updateReactionaryRookAfterMove(room, color, from, to, moveType) {
       state.rook = { r: row, c: 3 };
     }
   }
+
+  if (moveType === "equalityCastleKing") {
+    if (state.rook.r === from.r && state.rook.c === 7) {
+      state.rook = { r: from.r, c: from.c + 1 };
+    }
+  }
+
+  if (moveType === "equalityCastleQueen") {
+    if (state.rook.r === from.r && state.rook.c === 0) {
+      state.rook = { r: from.r, c: from.c - 1 };
+    }
+  }
 }
 
 function checkReactionaryThreat(room, attackerColor) {
@@ -451,7 +527,10 @@ function makeUpdatePayload(room) {
     doubleMove: room.doubleMove,
     wildHorse: room.wildHorse,
     kingReturn: room.kingReturn,
-    reactionary: room.reactionary
+    reactionary: room.reactionary,
+    capturedBy: room.capturedBy,
+    spaceTravel: room.spaceTravel,
+    usedCards: room.usedCards
   };
 }
 
@@ -461,41 +540,6 @@ wss.on("connection", ws => {
 
   ws.on("message", msg => {
     const data = JSON.parse(msg.toString());
-
-    if (data.type === "card") {
-      const room = rooms[roomId];
-      if (!room || room.over) return;
-
-      if (room.usedCards[color]) {
-        send(ws, {
-          type: "error",
-          message: "이미 카드를 사용했습니다."
-        });
-        return;
-      }
-
-      if (data.card !== room.cards[color]) {
-        send(ws, {
-          type: "error",
-          message: "네 카드가 아닙니다."
-        });
-        return;
-      }
-
-      if (data.card === "doubleMove") {
-        room.doubleMove[color] = 2;
-      }
-
-      if (data.card === "wildHorse") {
-        room.wildHorse[color] = true;
-      }
-
-      room.usedCards[color] = true;
-
-      broadcast(room, makeUpdatePayload(room));
-
-      return;
-    }
 
     if (data.type === "join") {
       roomId = data.roomId || "room1";
@@ -527,9 +571,60 @@ wss.on("connection", ws => {
           turn: room.turn,
           enPassant: room.enPassant,
           moved: room.moved,
-          card: room.cards[player.color]
+          card: room.cards[player.color],
+          capturedPieces: room.capturedBy[player.color],
+          spaceTravelEnabled: room.spaceTravel[player.color]
         });
       });
+
+      return;
+    }
+
+    if (data.type === "card") {
+      const room = rooms[roomId];
+      if (!room || room.over) return;
+
+      if (room.usedCards[color]) {
+        send(ws, {
+          type: "error",
+          message: "이미 카드를 사용했습니다."
+        });
+        return;
+      }
+
+      if (data.card !== room.cards[color]) {
+        send(ws, {
+          type: "error",
+          message: "네 카드가 아닙니다."
+        });
+        return;
+      }
+
+      if (data.card === "doubleMove") {
+        if (room.turn !== color) {
+          send(ws, {
+            type: "error",
+            message: "더블무브는 내 턴에만 사용할 수 있습니다."
+          });
+          return;
+        }
+
+        room.doubleMove[color] = 2;
+      }
+
+      if (data.card === "wildHorse") {
+        room.wildHorse[color] = true;
+      }
+
+      if (data.card === "spaceTravel") {
+        room.spaceTravel[color] = true;
+      }
+
+      room.usedCards[color] = true;
+
+      broadcast(room, makeUpdatePayload(room));
+
+      return;
     }
 
     if (data.type === "move") {
@@ -558,8 +653,17 @@ wss.on("connection", ws => {
       const board = room.board;
       const moving = board[from.r][from.c];
       let captured = board[to.r][to.c];
+      let capturedForNecro = captured;
 
       const opponent = otherColor(color);
+
+      if (room.doubleMove[color] > 0 && captured && captured[1] === "k") {
+        send(ws, {
+          type: "error",
+          message: "더블무브 중에는 킹을 잡을 수 없습니다."
+        });
+        return;
+      }
 
       if (captured && isReactionaryRook(room, opponent, to.r, to.c)) {
         room.over = true;
@@ -579,6 +683,7 @@ wss.on("connection", ws => {
       if (moveType === "enPassant") {
         const capRow = color === "white" ? to.r + 1 : to.r - 1;
         captured = board[capRow][to.c];
+        capturedForNecro = captured;
 
         if (captured && isReactionaryRook(room, opponent, capRow, to.c)) {
           room.over = true;
@@ -595,8 +700,36 @@ wss.on("connection", ws => {
         board[capRow][to.c] = "";
       }
 
-      board[to.r][to.c] = moving;
-      board[from.r][from.c] = "";
+      if (moveType === "equalityCastleKing") {
+        board[to.r][to.c] = moving;
+        board[from.r][from.c] = "";
+
+        board[from.r][from.c + 1] = board[from.r][7];
+        board[from.r][7] = "";
+
+        if (color === "white") room.moved.wrH = true;
+        else room.moved.brH = true;
+      } else if (moveType === "equalityCastleQueen") {
+        board[to.r][to.c] = moving;
+        board[from.r][from.c] = "";
+
+        board[from.r][from.c - 1] = board[from.r][0];
+        board[from.r][0] = "";
+
+        if (color === "white") room.moved.wrA = true;
+        else room.moved.brA = true;
+      } else {
+        board[to.r][to.c] = moving;
+        board[from.r][from.c] = "";
+      }
+
+      if (
+        capturedForNecro &&
+        capturedForNecro[0] !== moving[0] &&
+        capturedForNecro[1] !== "k"
+      ) {
+        room.capturedBy[color].push(capturedForNecro);
+      }
 
       if (moveType === "doublePawn") {
         const dir = color === "white" ? -1 : 1;
@@ -666,6 +799,7 @@ wss.on("connection", ws => {
       }
 
       broadcast(room, makeUpdatePayload(room));
+      return;
     }
 
     if (data.type === "cardUpdate") {
@@ -677,6 +811,14 @@ wss.on("connection", ws => {
       room.enPassant = data.enPassant || null;
       room.moved = data.moved || room.moved;
 
+      if (Array.isArray(data.necroCapturedPieces)) {
+        room.capturedBy[color] = data.necroCapturedPieces;
+      }
+
+      if ("spaceTravelEnabled" in data) {
+        room.spaceTravel[color] = !!data.spaceTravelEnabled;
+      }
+
       if ("kingReturn" in data) {
         room.kingReturn[color] = data.kingReturn;
       }
@@ -686,6 +828,7 @@ wss.on("connection", ws => {
       }
 
       broadcast(room, makeUpdatePayload(room));
+      return;
     }
 
     if (data.type === "resign") {
