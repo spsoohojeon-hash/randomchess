@@ -64,7 +64,12 @@ const Game = (() => {
         turn,
         enPassant,
         moved,
-        kingReturn: cardState.kingReturn
+        kingReturn: cardState.kingReturn,
+        reactionary: {
+          active: cardState.reactionaryActive,
+          rook: cardState.reactionaryRook,
+          checks: cardState.reactionaryChecks
+        }
       }));
     }
   }
@@ -171,6 +176,16 @@ const Game = (() => {
           cardState.kingReturn = data.kingReturn[myColor] || null;
         }
 
+        if (data.reactionary && myColor) {
+          const myReactionary = data.reactionary[myColor];
+
+          if (myReactionary) {
+            cardState.reactionaryActive = myReactionary.active;
+            cardState.reactionaryRook = myReactionary.rook;
+            cardState.reactionaryChecks = myReactionary.checks;
+          }
+        }
+
         selected = null;
         moves = [];
         removeGhost();
@@ -181,8 +196,10 @@ const Game = (() => {
 
       if (data.type === "gameover") {
         board = data.board;
+
         removeGhost();
         render();
+
         alert("게임 끝! 승자: " + data.winner);
         return;
       }
@@ -236,6 +253,12 @@ const Game = (() => {
             cell.classList.add("capture");
           } else {
             cell.classList.add("move");
+          }
+        }
+
+        if (cardState.reactionaryActive && cardState.reactionaryRook) {
+          if (cardState.reactionaryRook.r === r && cardState.reactionaryRook.c === c) {
+            cell.classList.add("selected");
           }
         }
 
@@ -330,6 +353,36 @@ const Game = (() => {
   }
 
   function clickCell(r, c) {
+    if (cardState.activeMode === "reactionaryPick") {
+      const piece = board[r]?.[c];
+
+      if (!piece || piece[0] !== turn[0] || piece[1] !== "r") {
+        alert("내 룩만 왕룩으로 선택 가능");
+        return;
+      }
+
+      const options = getReactionaryRookOptions();
+      const ok = options.some(pos => pos.r === r && pos.c === c);
+
+      if (!ok) {
+        alert("캐슬링 안 한 시작 위치의 룩만 선택 가능");
+        return;
+      }
+
+      cardState.reactionaryActive = true;
+      cardState.reactionaryRook = { r, c };
+      cardState.reactionaryChecks = 0;
+      cardState.activeMode = null;
+      cardState.reactionaryOptions = [];
+
+      alert("왕룩 지정 완료. 이제 이 룩이 잡히면 패배합니다.");
+
+      syncCardUpdate();
+      renderCard();
+      render();
+      return;
+    }
+
     if (cardState.activeMode === "spacePick") {
       const piece = board[r]?.[c];
 
@@ -626,6 +679,26 @@ const Game = (() => {
       }
     }
 
+    if (cardState.reactionaryActive && cardState.reactionaryRook) {
+      if (cardState.reactionaryRook.r === from.r && cardState.reactionaryRook.c === from.c) {
+        cardState.reactionaryRook = { r: to.r, c: to.c };
+      }
+
+      if (legal?.type === "castleKing") {
+        const row = moving[0] === "w" ? 7 : 0;
+        if (cardState.reactionaryRook.r === row && cardState.reactionaryRook.c === 7) {
+          cardState.reactionaryRook = { r: row, c: 5 };
+        }
+      }
+
+      if (legal?.type === "castleQueen") {
+        const row = moving[0] === "w" ? 7 : 0;
+        if (cardState.reactionaryRook.r === row && cardState.reactionaryRook.c === 0) {
+          cardState.reactionaryRook = { r: row, c: 3 };
+        }
+      }
+    }
+
     if (cardState.doubleMoveLeft > 1) {
       cardState.doubleMoveLeft--;
     } else {
@@ -821,6 +894,29 @@ const Game = (() => {
 
     const spaceTargets = getSpaceTravelPieces();
 
+    if (cardState.activeMode === "reactionaryPick") {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">반동분자</div>
+          <div class="cardDesc">왕룩으로 지정할 캐슬링 안 한 룩을 선택하세요.</div>
+        </div>
+      `;
+      return;
+    }
+
+    if (cardState.reactionaryActive && cardState.reactionaryRook) {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">왕룩 활성화</div>
+          <div class="cardDesc">
+            왕룩 위치: ${cardState.reactionaryRook.r}, ${cardState.reactionaryRook.c}<br>
+            위협 누적: ${cardState.reactionaryChecks}/3
+          </div>
+        </div>
+      `;
+      return;
+    }
+
     if (cardState.spaceTravelEnabled && spaceTargets.length > 0) {
       area.innerHTML = `
         <div class="cardBox">
@@ -994,6 +1090,32 @@ const Game = (() => {
     return result;
   }
 
+  function getReactionaryRookOptions() {
+    const result = [];
+
+    if (turn === "white") {
+      if (!moved.wrA && board[7]?.[0] === "wr") {
+        result.push({ r: 7, c: 0 });
+      }
+
+      if (!moved.wrH && board[7]?.[7] === "wr") {
+        result.push({ r: 7, c: 7 });
+      }
+    }
+
+    if (turn === "black") {
+      if (!moved.brA && board[0]?.[0] === "br") {
+        result.push({ r: 0, c: 0 });
+      }
+
+      if (!moved.brH && board[0]?.[7] === "br") {
+        result.push({ r: 0, c: 7 });
+      }
+    }
+
+    return result;
+  }
+
   function getKingReturnData(score) {
     if (score >= 3 && score <= 6) {
       return { mode: "bn", turns: 15, score };
@@ -1075,6 +1197,25 @@ const Game = (() => {
     alert(result.message);
 
     if (!result.ok) return;
+
+    if (usedCard === "reactionary") {
+      const options = getReactionaryRookOptions();
+
+      if (options.length === 0) {
+        cardState.activeMode = null;
+        alert("선택 가능한 캐슬링 안 한 룩이 없습니다.");
+        return;
+      }
+
+      moves = options.map(pos => ({
+        r: pos.r,
+        c: pos.c,
+        type: "normal"
+      }));
+
+      selected = null;
+      render();
+    }
 
     if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
