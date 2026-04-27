@@ -49,16 +49,20 @@ function createRoom() {
       bk:false, brA:false, brH:false
     },
     doubleMove: {
-  white: 0,
-  black: 0
+      white: 0,
+      black: 0
     },
     wildHorse: {
-  white: false,
-  black: false
+      white: false,
+      black: false
     },
     usedCards: {
-  white: false,
-  black: false
+      white: false,
+      black: false
+    },
+    kingReturn: {
+      white: null,
+      black: null
     }
   };
 }
@@ -145,14 +149,31 @@ function validMove(room, from, to, color) {
   }
 
   if (type === "n") {
-  if (room.wildHorse?.[color]) {
-    return (ar === 2 && ac === 2) ? "normal" : false;
-  }
-
-  return ((ar === 2 && ac === 1) || (ar === 1 && ac === 2)) ? "normal" : false;
+    if (room.wildHorse?.[color]) {
+      return (ar === 2 && ac === 2) ? "normal" : false;
+    }
+    return ((ar === 2 && ac === 1) || (ar === 1 && ac === 2)) ? "normal" : false;
   }
 
   if (type === "k") {
+
+    // 🔥 왕귀 이동
+    const kr = room.kingReturn[color];
+    if (kr && kr.turns > 0) {
+
+      if (kr.mode === "bn" || kr.mode === "qn") {
+        if ((ar === 2 && ac === 1) || (ar === 1 && ac === 2)) {
+          return "normal";
+        }
+      }
+
+      if (kr.mode === "q" || kr.mode === "qn") {
+        if ((dr === 0 || dc === 0 || ar === ac) && clearPath(board, from, to)) {
+          return "normal";
+        }
+      }
+    }
+
     if (ar <= 1 && ac <= 1) return "normal";
 
     if (color === "white" && from.r === 7 && from.c === 4 && dr === 0) {
@@ -227,48 +248,61 @@ wss.on("connection", ws => {
 
   ws.on("message", msg => {
     const data = JSON.parse(msg.toString());
-if (data.type === "card") {
-  const room = rooms[roomId];
-  if (!room || room.over) return;
 
-  if (room.usedCards[color]) {
-    send(ws, {
-      type: "error",
-      message: "이미 카드를 사용했습니다."
-    });
-    return;
-  }
+    if (data.type === "card") {
+      const room = rooms[roomId];
+      if (!room || room.over) return;
 
-  if (data.card !== room.cards[color]) {
-    send(ws, {
-      type: "error",
-      message: "네 카드가 아닙니다."
-    });
-    return;
-  }
+      if (room.usedCards[color]) return;
 
-  if (data.card === "doubleMove") {
-    room.doubleMove[color] = 2;
-  }
+      if (data.card === "doubleMove") {
+        room.doubleMove[color] = 2;
+      }
 
-  if (data.card === "wildHorse") {
-    room.wildHorse[color] = true;
-  }
+      if (data.card === "wildHorse") {
+        room.wildHorse[color] = true;
+      }
 
-  room.usedCards[color] = true;
+      room.usedCards[color] = true;
 
-  broadcast(room, {
-    type: "update",
-    board: room.board,
-    turn: room.turn,
-    enPassant: room.enPassant,
-    moved: room.moved,
-    doubleMove: room.doubleMove,
-    wildHorse: room.wildHorse
-  });
+      broadcast(room, {
+        type: "update",
+        board: room.board,
+        turn: room.turn,
+        enPassant: room.enPassant,
+        moved: room.moved,
+        doubleMove: room.doubleMove,
+        wildHorse: room.wildHorse,
+        kingReturn: room.kingReturn
+      });
 
-  return;
-}
+      return;
+    }
+
+    if (data.type === "cardUpdate") {
+      const room = rooms[roomId];
+      if (!room || room.over) return;
+
+      room.board = data.board;
+      room.turn = data.turn;
+      room.enPassant = data.enPassant || null;
+      room.moved = data.moved || room.moved;
+
+      if (data.kingReturn) {
+        room.kingReturn[color] = data.kingReturn;
+      }
+
+      broadcast(room, {
+        type: "update",
+        board: room.board,
+        turn: room.turn,
+        enPassant: room.enPassant,
+        moved: room.moved,
+        doubleMove: room.doubleMove,
+        wildHorse: room.wildHorse,
+        kingReturn: room.kingReturn
+      });
+    }
 
     if (data.type === "join") {
       roomId = data.roomId || "room1";
@@ -285,10 +319,7 @@ if (data.type === "card") {
       room.players.push({ ws, color });
 
       if (room.players.length === 1) {
-        send(ws, {
-          type: "waiting",
-          message: "매칭 찾는 중..."
-        });
+        send(ws, { type: "waiting" });
         return;
       }
 
@@ -309,84 +340,27 @@ if (data.type === "card") {
       const room = rooms[roomId];
       if (!room || room.over) return;
 
-      if (room.turn !== color) {
-        send(ws, {
-          type:"error",
-          message:"네 차례가 아님"
-        });
-        return;
-      }
+      if (room.turn !== color) return;
 
       const { from, to } = data;
       const moveType = validMove(room, from, to, color);
 
-      if (!moveType) {
-        send(ws, {
-          type:"error",
-          message:"불가능한 이동"
-        });
-        return;
-      }
+      if (!moveType) return;
 
       const board = room.board;
       const moving = board[from.r][from.c];
-      let captured = board[to.r][to.c];
 
       updateMoved(room, moving, from);
       room.enPassant = null;
 
-      if (moveType === "enPassant") {
-        const capRow = color === "white" ? to.r + 1 : to.r - 1;
-        captured = board[capRow][to.c];
-        board[capRow][to.c] = "";
-      }
-
       board[to.r][to.c] = moving;
       board[from.r][from.c] = "";
 
-      if (moveType === "doublePawn") {
-        const dir = color === "white" ? -1 : 1;
-        room.enPassant = {
-          r: from.r + dir,
-          c: from.c
-        };
-      }
-
-      if (moveType === "castleKing") {
-        const row = color === "white" ? 7 : 0;
-        board[row][5] = board[row][7];
-        board[row][7] = "";
-      }
-
-      if (moveType === "castleQueen") {
-        const row = color === "white" ? 7 : 0;
-        board[row][3] = board[row][0];
-        board[row][0] = "";
-      }
-
-      if (moving[1] === "p" && (to.r === 0 || to.r === 7)) {
-        const allowed = ["q","r","b","n"];
-        const promoteTo = allowed.includes(data.promoteTo) ? data.promoteTo : "q";
-        board[to.r][to.c] = moving[0] + promoteTo;
-      }
-
-      if (captured && captured[1] === "k") {
-        room.over = true;
-
-        broadcast(room, {
-          type:"gameover",
-          winner: color,
-          board
-        });
-
-        return;
-      }
-
       if (room.doubleMove[color] > 1) {
-  room.doubleMove[color]--;
-} else {
-  room.doubleMove[color] = 0;
-  room.turn = room.turn === "white" ? "black" : "white";
+        room.doubleMove[color]--;
+      } else {
+        room.doubleMove[color] = 0;
+        room.turn = room.turn === "white" ? "black" : "white";
       }
 
       broadcast(room, {
@@ -396,58 +370,11 @@ if (data.type === "card") {
         enPassant: room.enPassant,
         moved: room.moved,
         doubleMove: room.doubleMove,
-        wildHorse: room.wildHorse
+        wildHorse: room.wildHorse,
+        kingReturn: room.kingReturn
       });
-    }
-if (data.type === "cardUpdate") {
-  const room = rooms[roomId];
-  if (!room || room.over) return;
-
-  room.board = data.board;
-  room.turn = data.turn;
-  room.enPassant = data.enPassant || null;
-  room.moved = data.moved || room.moved;
-
-  broadcast(room, {
-    type: "update",
-    board: room.board,
-    turn: room.turn,
-    enPassant: room.enPassant,
-    moved: room.moved,
-    doubleMove: room.doubleMove,
-    wildHorse: room.wildHorse
-  });
-}
-    if (data.type === "resign") {
-      const room = rooms[roomId];
-      if (!room || room.over) return;
-
-      room.over = true;
-
-      const winner = color === "white" ? "black" : "white";
-
-      broadcast(room, {
-        type: "gameover",
-        winner,
-        board: room.board
-      });
-    }
-  });
-
-  ws.on("close", () => {
-    const room = rooms[roomId];
-    if (!room) return;
-
-    room.players = room.players.filter(p => p.ws !== ws);
-
-    if (room.players.length === 0) {
-      delete rooms[roomId];
     }
   });
 });
 
-const PORT = process.env.PORT || 3000;
-
-server.listen(PORT, () => {
-  console.log("Server running on", PORT);
-});
+server.listen(process.env.PORT || 3000);
