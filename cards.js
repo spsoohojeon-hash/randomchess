@@ -40,6 +40,7 @@ export function createCardState() {
 
     wildHorse: false,
     doubleMoveLeft: 0,
+    doubleMoveActive: false,
 
     necroUsed: false,
     necroCapturedPieces: [],
@@ -75,6 +76,7 @@ export function useCard(cardId, state) {
 
   if (cardId === "doubleMove") {
     state.doubleMoveLeft = 2;
+    state.doubleMoveActive = true;
     return { ok: true, message: "더블무브 발동! 이번 턴에 2번 이동합니다." };
   }
 
