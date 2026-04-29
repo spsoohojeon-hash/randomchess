@@ -243,6 +243,7 @@ const Game = (() => {
 
         if (data.doubleMove && myColor) {
           cardState.doubleMoveLeft = data.doubleMove[myColor];
+          cardState.doubleMoveActive = cardState.doubleMoveLeft > 0;
         }
 
         if (data.wildHorse && myColor) {
@@ -616,7 +617,7 @@ const Game = (() => {
     const moving = board[from.r][from.c];
     const target = board[to.r][to.c];
 
-    if (cardState.doubleMoveLeft > 0 && target && target[1] === "k") {
+    if (cardState.doubleMoveActive && cardState.doubleMoveLeft > 0 && target && target[1] === "k") {
       alert("더블무브 중에는 킹을 잡을 수 없음");
       selected = null;
       moves = [];
@@ -667,6 +668,16 @@ const Game = (() => {
     }
   }
 
+  function finishMoveTurn() {
+    if (cardState.doubleMoveLeft > 1) {
+      cardState.doubleMoveLeft--;
+    } else {
+      cardState.doubleMoveLeft = 0;
+      cardState.doubleMoveActive = false;
+      turn = turn === "white" ? "black" : "white";
+    }
+  }
+
   function applyMove(from, to, promoteTo) {
     const moving = board[from.r][from.c];
     let captured = board[to.r][to.c];
@@ -696,14 +707,7 @@ const Game = (() => {
       legal?.type === "equalityCastleQueen"
     ) {
       applyEqualityCastle(from, to, moving, legal.type);
-
-      if (cardState.doubleMoveLeft > 1) {
-        cardState.doubleMoveLeft--;
-      } else {
-        cardState.doubleMoveLeft = 0;
-        turn = turn === "white" ? "black" : "white";
-      }
-
+      finishMoveTurn();
       return;
     }
 
@@ -779,12 +783,7 @@ const Game = (() => {
       }
     }
 
-    if (cardState.doubleMoveLeft > 1) {
-      cardState.doubleMoveLeft--;
-    } else {
-      cardState.doubleMoveLeft = 0;
-      turn = turn === "white" ? "black" : "white";
-    }
+    finishMoveTurn();
   }
 
   function doExorcism(r, c) {
