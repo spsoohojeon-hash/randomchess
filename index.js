@@ -158,6 +158,38 @@ function clearPath(board, from, to) {
   return true;
 }
 
+function validElephantMove(board, from, to) {
+  const dr = to.r - from.r;
+  const dc = to.c - from.c;
+
+  const moves = [
+    { dr: 3, dc: 2, blocks: [[1, 0], [2, 1]] },
+    { dr: 3, dc: -2, blocks: [[1, 0], [2, -1]] },
+    { dr: -3, dc: 2, blocks: [[-1, 0], [-2, 1]] },
+    { dr: -3, dc: -2, blocks: [[-1, 0], [-2, -1]] },
+
+    { dr: 2, dc: 3, blocks: [[0, 1], [1, 2]] },
+    { dr: -2, dc: 3, blocks: [[0, 1], [-1, 2]] },
+    { dr: 2, dc: -3, blocks: [[0, -1], [1, -2]] },
+    { dr: -2, dc: -3, blocks: [[0, -1], [-1, -2]] }
+  ];
+
+  const move = moves.find(m => m.dr === dr && m.dc === dc);
+
+  if (!move) return false;
+
+  for (const [br, bc] of move.blocks) {
+    const blockR = from.r + br;
+    const blockC = from.c + bc;
+
+    if (board[blockR]?.[blockC]) {
+      return false;
+    }
+  }
+
+  return true;
+}
+
 function hasEquality(room, color) {
   return room.cards?.[color] === "equality";
 }
@@ -272,7 +304,7 @@ function validMove(room, from, to, color) {
 
   if (type === "n") {
     if (room.wildHorse?.[color]) {
-      return (ar === 2 && ac === 2) ? "normal" : false;
+      return validElephantMove(board, from, to) ? "normal" : false;
     }
 
     return ((ar === 2 && ac === 1) || (ar === 1 && ac === 2)) ? "normal" : false;
@@ -408,7 +440,7 @@ function canAttackSquare(room, from, to, color) {
 
   if (type === "n") {
     if (room.wildHorse?.[color]) {
-      return ar === 2 && ac === 2;
+      return validElephantMove(board, from, to);
     }
 
     return (ar === 2 && ac === 1) || (ar === 1 && ac === 2);
