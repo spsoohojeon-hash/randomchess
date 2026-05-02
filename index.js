@@ -132,7 +132,9 @@ function createRoom() {
 }
 
 function send(ws, data) {
-  ws.send(JSON.stringify(data));
+  if (ws.readyState === ws.OPEN) {
+    ws.send(JSON.stringify(data));
+  }
 }
 
 function broadcast(room, data) {
@@ -190,54 +192,15 @@ function validElephantMove(board, from, to) {
   return true;
 }
 
+/*
+  평등국가는 이제 일반 이동에 섞이는 패시브가 아님.
+  app.js에서 평등국가 전용 선택 모드로 처리하고 cardUpdate로 서버에 동기화함.
+*/
 function hasEquality(room, color) {
-  return room.cards?.[color] === "equality";
+  return false;
 }
 
 function validEqualityCastle(room, from, to, color) {
-  if (!hasEquality(room, color)) return false;
-
-  const board = room.board;
-  const piece = board[from.r]?.[from.c];
-
-  if (!piece || piece[0] !== color[0]) return false;
-
-  const homeRow = color === "white" ? 7 : 0;
-
-  if (from.r !== homeRow || to.r !== homeRow) return false;
-
-  const dr = to.r - from.r;
-  const dc = to.c - from.c;
-
-  if (dr !== 0 || Math.abs(dc) !== 2) return false;
-  if (board[to.r]?.[to.c]) return false;
-
-  if (dc === 2) {
-    if (color === "white" && room.moved.wrH) return false;
-    if (color === "black" && room.moved.brH) return false;
-
-    if (board[homeRow][7] !== color[0] + "r") return false;
-
-    for (let c = from.c + 1; c < 7; c++) {
-      if (board[homeRow][c]) return false;
-    }
-
-    return "equalityCastleKing";
-  }
-
-  if (dc === -2) {
-    if (color === "white" && room.moved.wrA) return false;
-    if (color === "black" && room.moved.brA) return false;
-
-    if (board[homeRow][0] !== color[0] + "r") return false;
-
-    for (let c = 1; c < from.c; c++) {
-      if (board[homeRow][c]) return false;
-    }
-
-    return "equalityCastleQueen";
-  }
-
   return false;
 }
 
@@ -517,18 +480,6 @@ function updateReactionaryRookAfterMove(room, color, from, to, moveType) {
       state.rook = { r: row, c: 3 };
     }
   }
-
-  if (moveType === "equalityCastleKing") {
-    if (state.rook.r === from.r && state.rook.c === 7) {
-      state.rook = { r: from.r, c: from.c + 1 };
-    }
-  }
-
-  if (moveType === "equalityCastleQueen") {
-    if (state.rook.r === from.r && state.rook.c === 0) {
-      state.rook = { r: from.r, c: from.c - 1 };
-    }
-  }
 }
 
 function checkReactionaryThreat(room, attackerColor) {
@@ -571,7 +522,17 @@ wss.on("connection", ws => {
   let color = null;
 
   ws.on("message", msg => {
-    const data = JSON.parse(msg.toString());
+    let data;
+
+    try {
+      data = JSON.parse(msg.toString());
+    } catch {
+      send(ws, {
+        type: "error",
+        message: "잘못된 메시지 형식입니다."
+      });
+      return;
+    }
 
     if (data.type === "join") {
       roomId = data.roomId || "room1";
@@ -616,18 +577,36 @@ wss.on("connection", ws => {
       const room = rooms[roomId];
       if (!room || room.over) return;
 
-      if (room.usedCards[color]) {
-        send(ws, {
-          type: "error",
-          message: "이미 카드를 사용했습니다."
-        });
-        return;
-      }
-
       if (data.card !== room.cards[color]) {
         send(ws, {
           type: "error",
           message: "네 카드가 아닙니다."
+        });
+        return;
+      }
+
+      /*
+        평등국가는 사용 횟수 제한 없음 + app.js 전용 모드로 처리함.
+        서버에서 usedCards를 true로 만들지 않음.
+      */
+      if (data.card === "equality") {
+        broadcast(room, makeUpdatePayload(room));
+        return;
+      }
+
+      /*
+        반동분자는 자동 패시브라 app.js에서 cardUpdate로 왕룩만 동기화함.
+        혹시 카드 메시지가 와도 usedCards 처리하지 않음.
+      */
+      if (data.card === "reactionary") {
+        broadcast(room, makeUpdatePayload(room));
+        return;
+      }
+
+      if (room.usedCards[color]) {
+        send(ws, {
+          type: "error",
+          message: "이미 카드를 사용했습니다."
         });
         return;
       }
@@ -732,28 +711,8 @@ wss.on("connection", ws => {
         board[capRow][to.c] = "";
       }
 
-      if (moveType === "equalityCastleKing") {
-        board[to.r][to.c] = moving;
-        board[from.r][from.c] = "";
-
-        board[from.r][from.c + 1] = board[from.r][7];
-        board[from.r][7] = "";
-
-        if (color === "white") room.moved.wrH = true;
-        else room.moved.brH = true;
-      } else if (moveType === "equalityCastleQueen") {
-        board[to.r][to.c] = moving;
-        board[from.r][from.c] = "";
-
-        board[from.r][from.c - 1] = board[from.r][0];
-        board[from.r][0] = "";
-
-        if (color === "white") room.moved.wrA = true;
-        else room.moved.brA = true;
-      } else {
-        board[to.r][to.c] = moving;
-        board[from.r][from.c] = "";
-      }
+      board[to.r][to.c] = moving;
+      board[from.r][from.c] = "";
 
       if (
         capturedForNecro &&
@@ -876,6 +835,8 @@ wss.on("connection", ws => {
         winner,
         board: room.board
       });
+
+      return;
     }
   });
 
