@@ -165,39 +165,17 @@ function validElephantMove(board, from, to) {
   const dc = to.c - from.c;
 
   const moves = [
-    { dr: 3, dc: 2, blocks: [[1, 0], [2, 1]] },
-    { dr: 3, dc: -2, blocks: [[1, 0], [2, -1]] },
-    { dr: -3, dc: 2, blocks: [[-1, 0], [-2, 1]] },
-    { dr: -3, dc: -2, blocks: [[-1, 0], [-2, -1]] },
-
-    { dr: 2, dc: 3, blocks: [[0, 1], [1, 2]] },
-    { dr: -2, dc: 3, blocks: [[0, 1], [-1, 2]] },
-    { dr: 2, dc: -3, blocks: [[0, -1], [1, -2]] },
-    { dr: -2, dc: -3, blocks: [[0, -1], [-1, -2]] }
+    [3, 2],
+    [3, -2],
+    [-3, 2],
+    [-3, -2],
+    [2, 3],
+    [-2, 3],
+    [2, -3],
+    [-2, -3]
   ];
 
-  const move = moves.find(m => m.dr === dr && m.dc === dc);
-
-  if (!move) return false;
-
-  for (const [br, bc] of move.blocks) {
-    const blockR = from.r + br;
-    const blockC = from.c + bc;
-
-    if (board[blockR]?.[blockC]) {
-      return false;
-    }
-  }
-
-  return true;
-}
-
-/*
-  평등국가는 이제 일반 이동에 섞이는 패시브가 아님.
-  app.js에서 평등국가 전용 선택 모드로 처리하고 cardUpdate로 서버에 동기화함.
-*/
-function hasEquality(room, color) {
-  return false;
+  return moves.some(([mr, mc]) => mr === dr && mc === dc);
 }
 
 function validEqualityCastle(room, from, to, color) {
@@ -585,20 +563,18 @@ wss.on("connection", ws => {
         return;
       }
 
-      /*
-        평등국가는 사용 횟수 제한 없음 + app.js 전용 모드로 처리함.
-        서버에서 usedCards를 true로 만들지 않음.
-      */
       if (data.card === "equality") {
         broadcast(room, makeUpdatePayload(room));
         return;
       }
 
-      /*
-        반동분자는 자동 패시브라 app.js에서 cardUpdate로 왕룩만 동기화함.
-        혹시 카드 메시지가 와도 usedCards 처리하지 않음.
-      */
       if (data.card === "reactionary") {
+        broadcast(room, makeUpdatePayload(room));
+        return;
+      }
+
+      if (data.card === "spaceTravel") {
+        room.spaceTravel[color] = true;
         broadcast(room, makeUpdatePayload(room));
         return;
       }
@@ -625,10 +601,6 @@ wss.on("connection", ws => {
 
       if (data.card === "wildHorse") {
         room.wildHorse[color] = true;
-      }
-
-      if (data.card === "spaceTravel") {
-        room.spaceTravel[color] = true;
       }
 
       room.usedCards[color] = true;
