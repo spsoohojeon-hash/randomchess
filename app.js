@@ -283,7 +283,8 @@ const Game = (() => {
           myColor &&
           data.usedCards[myColor] &&
           myCard !== "equality" &&
-          myCard !== "reactionary"
+          myCard !== "reactionary" &&
+          myCard !== "spaceTravel"
         ) {
           myCard = null;
         }
@@ -352,8 +353,13 @@ const Game = (() => {
         }
 
         const legal = moves.find(m => m.r === r && m.c === c);
+
         if (legal) {
-          if (legal.type === "equalityCastle" || legal.type === "equalityCastleKing" || legal.type === "equalityCastleQueen") {
+          if (
+            legal.type === "equalityCastle" ||
+            legal.type === "equalityCastleKing" ||
+            legal.type === "equalityCastleQueen"
+          ) {
             cell.classList.add("equalityCastleMove");
           } else if (board[r][c] || legal.type === "enPassant") {
             cell.classList.add("capture");
@@ -542,13 +548,20 @@ const Game = (() => {
     }
 
     if (cardState.activeMode === "spacePlace") {
-      if (board[r][c]) {
-        alert("빈칸만 텔레포트 가능");
+      const from = cardState.selectedSquares[0];
+
+      if (!from) {
+        alert("텔레포트할 기물이 선택되지 않았습니다.");
+        cardState.activeMode = null;
+        cardState.selectedSquares = [];
+        selected = null;
+        moves = [];
+        render();
         return;
       }
 
-      const from = cardState.selectedSquares[0];
-      const piece = board[from.r][from.c];
+      const piece = board[from.r]?.[from.c];
+      const target = board[r]?.[c];
 
       if (!piece) {
         alert("텔레포트할 기물이 없음");
@@ -560,11 +573,23 @@ const Game = (() => {
         return;
       }
 
+      if (target && target[0] === piece[0]) {
+        alert("내 기물이 있는 칸으로는 텔레포트할 수 없습니다.");
+        return;
+      }
+
+      if (target && target[1] === "k") {
+        alert("우주여행으로 킹은 잡을 수 없습니다.");
+        return;
+      }
+
+      if (target && target[0] !== piece[0] && target[1] !== "k") {
+        cardState.necroCapturedPieces.push(target);
+      }
+
       board[r][c] = piece;
       board[from.r][from.c] = "";
 
-      cardState.spaceTravelEnabled = false;
-      cardState.teleportPieces = [];
       cardState.selectedSquares = [];
       cardState.activeMode = null;
 
@@ -748,15 +773,6 @@ const Game = (() => {
       }
 
       board[capRow][to.c] = "";
-    }
-
-    if (
-      legal?.type === "equalityCastleKing" ||
-      legal?.type === "equalityCastleQueen"
-    ) {
-      applyEqualityCastle(from, to, moving, legal.type);
-      finishMoveTurn();
-      return;
     }
 
     board[to.r][to.c] = moving;
@@ -972,22 +988,6 @@ const Game = (() => {
     if (piece === "br" && from.r === 0 && from.c === 7) moved.brH = true;
   }
 
-  function hasEqualityPassive(color) {
-    return false;
-  }
-
-  function getEqualityCastleMove(r, c, color, side) {
-    return null;
-  }
-
-  function addEqualityCastleMoves(r, c, piece, result) {
-    return;
-  }
-
-  function applyEqualityCastle(from, to, moving, type) {
-    return false;
-  }
-
   function getMoves(r, c) {
     const piece = board[r]?.[c];
 
@@ -1193,7 +1193,7 @@ const Game = (() => {
       area.innerHTML = `
         <div class="cardBox">
           <div class="cardTitle">우주여행</div>
-          <div class="cardDesc">텔레포트할 빈칸을 선택하세요.</div>
+          <div class="cardDesc">이동할 칸을 선택하세요. 상대 기물은 잡을 수 있지만 킹은 못 잡습니다.</div>
         </div>
       `;
       return;
@@ -1216,7 +1216,7 @@ const Game = (() => {
       area.innerHTML = `
         <div class="cardBox">
           <div class="cardTitle">우주여행 준비됨</div>
-          <div class="cardDesc">상대 진영 코너에 도착한 내 기물을 빈칸으로 텔레포트합니다.</div>
+          <div class="cardDesc">상대 진영 코너에 도착한 내 기물을 원하는 칸으로 텔레포트합니다.</div>
           <button class="cardBtn" onclick="Game.activateSpaceTravel()">
             텔레포트 사용
           </button>
@@ -1291,7 +1291,7 @@ const Game = (() => {
     for (const pos of corners) {
       const piece = board[pos.r]?.[pos.c];
 
-      if (piece && piece[0] === color && piece[1] !== "k") {
+      if (piece && piece[0] === color) {
         result.push({
           r: pos.r,
           c: pos.c,
@@ -1303,12 +1303,23 @@ const Game = (() => {
     return result;
   }
 
-  function getEmptySquares() {
+  function getSpaceDestinationMoves(color) {
     const result = [];
 
     for (let r = 0; r < 8; r++) {
       for (let c = 0; c < 8; c++) {
-        if (!board[r][c]) {
+        const target = board[r][c];
+
+        if (!target) {
+          result.push({
+            r,
+            c,
+            type: "normal"
+          });
+          continue;
+        }
+
+        if (target[0] !== color && target[1] !== "k") {
           result.push({
             r,
             c,
@@ -1345,6 +1356,15 @@ const Game = (() => {
     if (bishops.length === 0) {
       alert("사용할 수 있는 비숍이 없습니다.");
       cancelCardSelection();
+      return;
+    }
+
+    if (!modal || !list) {
+      cardState.activeMode = "exorcism";
+      pendingCardUse = myCard;
+      selected = null;
+      moves = [];
+      render();
       return;
     }
 
@@ -1459,6 +1479,19 @@ const Game = (() => {
       return;
     }
 
+    if (!modal || !list) {
+      cardState.activeMode = "reactionaryPick";
+      pendingCardUse = null;
+      selected = null;
+      moves = rooks.map(pos => ({
+        r: pos.r,
+        c: pos.c,
+        type: "normal"
+      }));
+      render();
+      return;
+    }
+
     list.innerHTML = "";
 
     rooks.forEach(pos => {
@@ -1531,6 +1564,16 @@ const Game = (() => {
       return;
     }
 
+    if (!modal || !list) {
+      cardState.activeMode = "spacePick";
+      cardState.selectedSquares = [];
+      selected = null;
+      moves = targets;
+      renderCard();
+      render();
+      return;
+    }
+
     list.innerHTML = "";
 
     targets.forEach(pos => {
@@ -1556,7 +1599,7 @@ const Game = (() => {
   function chooseSpacePiece(r, c) {
     const piece = board[r]?.[c];
 
-    if (!piece || piece[0] !== turn[0] || piece[1] === "k") {
+    if (!piece || piece[0] !== turn[0]) {
       alert("텔레포트 가능한 내 기물만 선택 가능합니다.");
       return;
     }
@@ -1575,9 +1618,9 @@ const Game = (() => {
     cardState.activeMode = "spacePlace";
 
     selected = { r, c };
-    moves = getEmptySquares();
+    moves = getSpaceDestinationMoves(piece[0]);
 
-    alert("이동할 빈칸을 선택하세요.");
+    alert("이동할 칸을 선택하세요. 상대 기물은 잡을 수 있지만 킹은 못 잡습니다.");
     renderCard();
     render();
   }
@@ -1589,6 +1632,15 @@ const Game = (() => {
     if (cardState.necroCapturedPieces.length === 0) {
       alert("부활시킬 수 있는 잡은 기물이 없습니다.");
       cancelCardSelection();
+      return;
+    }
+
+    if (!modal || !list) {
+      cardState.activeMode = "necroPick";
+      pendingCardUse = myCard;
+      selected = null;
+      moves = [];
+      render();
       return;
     }
 
@@ -1826,8 +1878,15 @@ const Game = (() => {
 
       alert(result.message);
 
-      pendingCardUse = usedCard;
-      consumeCurrentCard();
+      pendingCardUse = null;
+
+      if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: "card",
+          card: usedCard
+        }));
+      }
+
       syncCardUpdate();
 
       renderCard();
