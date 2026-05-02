@@ -5,7 +5,7 @@ export const CARD_INFO = {
   },
   wildHorse: {
     name: "존나 야생마",
-    desc: "발동 후 내 나이트는 장기 상처럼 움직인다. 중간 길이 막히면 이동할 수 없다."
+    desc: "발동 후 내 나이트는 상하좌우로 1칸 간 뒤, 그 방향 대각선으로 2칸 움직인다. 중간 길이 막히면 이동할 수 없다."
   },
   spaceTravel: {
     name: "우주여행",
@@ -17,11 +17,11 @@ export const CARD_INFO = {
   },
   equality: {
     name: "평등국가",
-    desc: "패시브. 내 홈 랭크의 모든 기물이 룩과 캐슬링할 수 있다."
+    desc: "패시브. 모든 내 기물이 조건을 만족하면 다른 내 기물과 캐슬링할 수 있다."
   },
   reactionary: {
     name: "반동분자",
-    desc: "캐슬링을 둘 다 하지 않았다면 내 룩 하나를 왕룩으로 지정한다. 왕룩이 잡히면 패배하고, 상대가 왕룩을 공격 가능한 위치로 이동할 때마다 위협 1회 누적된다. 3회 누적 시 패배."
+    desc: "패시브. 게임 시작 시 자동으로 왕룩을 지정한다. 왕룩이 잡히면 패배하고, 상대가 왕룩을 공격 가능한 위치로 이동할 때마다 위협 1회 누적된다. 3회 누적 시 패배."
   },
   exorcism: {
     name: "퇴마(물리)",
@@ -71,7 +71,7 @@ export function useCard(cardId, state) {
 
   if (cardId === "wildHorse") {
     state.wildHorse = true;
-    return { ok: true, message: "존나 야생마 발동! 내 나이트가 장기 상처럼 움직입니다." };
+    return { ok: true, message: "존나 야생마 발동! 내 나이트가 상처럼 움직입니다." };
   }
 
   if (cardId === "doubleMove") {
@@ -89,6 +89,13 @@ export function useCard(cardId, state) {
     return {
       ok: false,
       message: "평등국가는 패시브 능력이라 직접 사용할 필요가 없습니다."
+    };
+  }
+
+  if (cardId === "reactionary") {
+    return {
+      ok: false,
+      message: "반동분자는 패시브 능력이라 자동으로 발동됩니다."
     };
   }
 
@@ -114,12 +121,6 @@ export function useCard(cardId, state) {
   if (cardId === "kingReturn") {
     state.activeMode = "kingReturn";
     return { ok: true, message: "왕의 귀환 발동!" };
-  }
-
-  if (cardId === "reactionary") {
-    state.activeMode = "reactionaryPick";
-    state.reactionaryOptions = [];
-    return { ok: true, message: "반동분자: 왕룩으로 지정할 룩을 선택하세요." };
   }
 
   return { ok: false, message: "알 수 없는 카드입니다." };
