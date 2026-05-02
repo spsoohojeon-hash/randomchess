@@ -34,6 +34,7 @@ const Game = (() => {
   let myCard = null;
   let cardState = createCardState();
   let pendingCardUse = null;
+  let reactionaryAutoPrompted = false;
 
   const imgs = {
     wp:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wp.png",
@@ -100,6 +101,7 @@ const Game = (() => {
     };
     cardState = createCardState();
     pendingCardUse = null;
+    reactionaryAutoPrompted = false;
     closeAllCardModals();
   }
 
@@ -232,6 +234,7 @@ const Game = (() => {
         showGame();
         renderCard();
         render();
+        tryAutoReactionary();
         return;
       }
 
@@ -272,7 +275,13 @@ const Game = (() => {
           cardState.spaceTravelEnabled = !!data.spaceTravel[myColor];
         }
 
-        if (data.usedCards && myColor && data.usedCards[myColor] && myCard !== "equality") {
+        if (
+          data.usedCards &&
+          myColor &&
+          data.usedCards[myColor] &&
+          myCard !== "equality" &&
+          myCard !== "reactionary"
+        ) {
           myCard = null;
         }
 
@@ -281,6 +290,7 @@ const Game = (() => {
         removeGhost();
         renderCard();
         render();
+        tryAutoReactionary();
         return;
       }
 
@@ -1177,6 +1187,19 @@ const Game = (() => {
       return;
     }
 
+    if (myCard === "reactionary") {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">${getCardName(myCard)}</div>
+          <div class="cardDesc">
+            ${getCardDescription(myCard)}<br>
+            <b>패시브 적용 중</b>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
     area.innerHTML = `
       <div class="cardBox">
         <div class="cardTitle">${getCardName(myCard)}</div>
@@ -1309,10 +1332,32 @@ const Game = (() => {
     render();
   }
 
+  function getReactionaryOwnerColor() {
+    if (!localMode && myColor) {
+      return myColor;
+    }
+
+    return turn;
+  }
+
+  function tryAutoReactionary() {
+    if (myCard !== "reactionary") return;
+    if (cardState.reactionaryActive) return;
+    if (cardState.activeMode === "reactionaryPick") return;
+    if (reactionaryAutoPrompted) return;
+
+    reactionaryAutoPrompted = true;
+
+    setTimeout(() => {
+      showReactionaryModal();
+    }, 0);
+  }
+
   function getReactionaryRookOptions() {
     const result = [];
+    const owner = getReactionaryOwnerColor();
 
-    if (turn === "white") {
+    if (owner === "white") {
       if (moved.wk || moved.wrA || moved.wrH) {
         return result;
       }
@@ -1326,7 +1371,7 @@ const Game = (() => {
       }
     }
 
-    if (turn === "black") {
+    if (owner === "black") {
       if (moved.bk || moved.brA || moved.brH) {
         return result;
       }
@@ -1366,7 +1411,7 @@ const Game = (() => {
     });
 
     cardState.activeMode = "reactionaryPick";
-    pendingCardUse = myCard;
+    pendingCardUse = null;
 
     selected = null;
     moves = rooks.map(pos => ({
@@ -1380,9 +1425,10 @@ const Game = (() => {
   }
 
   function chooseReactionaryRook(r, c) {
+    const owner = getReactionaryOwnerColor();
     const piece = board[r]?.[c];
 
-    if (!piece || piece[0] !== turn[0] || piece[1] !== "r") {
+    if (!piece || piece[0] !== owner[0] || piece[1] !== "r") {
       alert("내 룩만 왕룩으로 선택 가능합니다.");
       return;
     }
@@ -1406,7 +1452,6 @@ const Game = (() => {
     selected = null;
     moves = [];
 
-    consumeCurrentCard();
     syncCardUpdate();
 
     alert("왕룩 지정 완료. 이 룩이 잡히면 패배합니다.");
@@ -1671,6 +1716,12 @@ const Game = (() => {
       return;
     }
 
+    if (usedCard === "reactionary") {
+      alert("반동분자는 패시브 능력이라 자동으로 발동됩니다.");
+      tryAutoReactionary();
+      return;
+    }
+
     if (!localMode && myColor && turn !== myColor && usedCard === "doubleMove") {
       alert("더블무브는 내 턴에만 사용할 수 있습니다.");
       return;
@@ -1679,12 +1730,6 @@ const Game = (() => {
     if (usedCard === "exorcism") {
       pendingCardUse = usedCard;
       showExorcismModal();
-      return;
-    }
-
-    if (usedCard === "reactionary") {
-      pendingCardUse = usedCard;
-      showReactionaryModal();
       return;
     }
 
