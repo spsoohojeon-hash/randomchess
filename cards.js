@@ -17,7 +17,7 @@ export const CARD_INFO = {
   },
   equality: {
     name: "평등국가",
-    desc: "패시브. 모든 내 기물이 조건을 만족하면 다른 내 기물과 캐슬링할 수 있다."
+    desc: "사용한 턴에 평등국가 캐슬링만 할 수 있다. 같은 가로줄에서 내 기물 둘 사이에 빈칸 2칸이 있으면 서로 안쪽으로 캐슬링한다. 사용 횟수 제한 없음."
   },
   reactionary: {
     name: "반동분자",
@@ -86,9 +86,11 @@ export function useCard(cardId, state) {
   }
 
   if (cardId === "equality") {
+    state.activeMode = "equalityPickA";
+    state.selectedSquares = [];
     return {
-      ok: false,
-      message: "평등국가는 패시브 능력이라 직접 사용할 필요가 없습니다."
+      ok: true,
+      message: "평등국가 발동! 캐슬링할 첫 번째 내 기물을 선택하세요."
     };
   }
 
