@@ -5,11 +5,11 @@ export const CARD_INFO = {
   },
   wildHorse: {
     name: "존나 야생마",
-    desc: "발동 후 내 나이트는 상하좌우로 1칸 간 뒤, 그 방향 대각선으로 2칸 움직인다. 중간 길이 막히면 이동할 수 없다."
+    desc: "발동 후 내 나이트는 상하좌우로 1칸 간 뒤, 그 방향 대각선으로 2칸 움직인다. 다른 기물을 뛰어넘을 수 있다."
   },
   spaceTravel: {
     name: "우주여행",
-    desc: "백은 a8/h8, 흑은 a1/h1 도달 시 다음 턴부터 1회 텔레포트 가능. 킹은 텔레포트할 수 없다."
+    desc: "백은 a8/h8, 흑은 a1/h1에 도달한 내 기물을 원하는 칸으로 텔레포트한다. 상대 기물은 잡을 수 있지만 킹은 못 잡는다. 사용 횟수 제한 없음."
   },
   doubleMove: {
     name: "더블무브",
@@ -71,7 +71,7 @@ export function useCard(cardId, state) {
 
   if (cardId === "wildHorse") {
     state.wildHorse = true;
-    return { ok: true, message: "존나 야생마 발동! 내 나이트가 상처럼 움직입니다." };
+    return { ok: true, message: "존나 야생마 발동! 내 나이트가 상처럼 움직이고 기물을 뛰어넘습니다." };
   }
 
   if (cardId === "doubleMove") {
@@ -132,36 +132,21 @@ export function getWildHorseMoves(r, c, board, color) {
   const result = [];
 
   const moves = [
-    { dr: 3, dc: 2, blocks: [[1, 0], [2, 1]] },
-    { dr: 3, dc: -2, blocks: [[1, 0], [2, -1]] },
-    { dr: -3, dc: 2, blocks: [[-1, 0], [-2, 1]] },
-    { dr: -3, dc: -2, blocks: [[-1, 0], [-2, -1]] },
-
-    { dr: 2, dc: 3, blocks: [[0, 1], [1, 2]] },
-    { dr: -2, dc: 3, blocks: [[0, 1], [-1, 2]] },
-    { dr: 2, dc: -3, blocks: [[0, -1], [1, -2]] },
-    { dr: -2, dc: -3, blocks: [[0, -1], [-1, -2]] }
+    [3, 2],
+    [3, -2],
+    [-3, 2],
+    [-3, -2],
+    [2, 3],
+    [-2, 3],
+    [2, -3],
+    [-2, -3]
   ];
 
-  for (const move of moves) {
-    const nr = r + move.dr;
-    const nc = c + move.dc;
+  for (const [dr, dc] of moves) {
+    const nr = r + dr;
+    const nc = c + dc;
 
     if (nr < 0 || nr > 7 || nc < 0 || nc > 7) continue;
-
-    let blocked = false;
-
-    for (const [br, bc] of move.blocks) {
-      const blockR = r + br;
-      const blockC = c + bc;
-
-      if (board[blockR]?.[blockC]) {
-        blocked = true;
-        break;
-      }
-    }
-
-    if (blocked) continue;
 
     const target = board[nr][nc];
 
