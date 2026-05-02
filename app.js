@@ -95,13 +95,16 @@ const Game = (() => {
     selected = null;
     moves = [];
     enPassant = null;
+
     moved = {
       wk:false, wrA:false, wrH:false,
       bk:false, brA:false, brH:false
     };
+
     cardState = createCardState();
     pendingCardUse = null;
     reactionaryAutoPrompted = false;
+
     closeAllCardModals();
   }
 
@@ -288,6 +291,7 @@ const Game = (() => {
         selected = null;
         moves = [];
         removeGhost();
+
         renderCard();
         render();
         tryAutoReactionary();
@@ -349,7 +353,7 @@ const Game = (() => {
 
         const legal = moves.find(m => m.r === r && m.c === c);
         if (legal) {
-          if (legal.type === "equalityCastleKing" || legal.type === "equalityCastleQueen") {
+          if (legal.type === "equalityCastle" || legal.type === "equalityCastleKing" || legal.type === "equalityCastleQueen") {
             cell.classList.add("equalityCastleMove");
           } else if (board[r][c] || legal.type === "enPassant") {
             cell.classList.add("capture");
@@ -358,8 +362,25 @@ const Game = (() => {
           }
         }
 
+        if (cardState.activeMode === "equalityPickA") {
+          const piece = board[r]?.[c];
+
+          if (piece && piece[0] === turn[0]) {
+            cell.classList.add("equalityCastleMove");
+          }
+        }
+
+        if (cardState.activeMode === "equalityPickB") {
+          const targets = getEqualityTargets();
+
+          if (targets.some(pos => pos.r === r && pos.c === c)) {
+            cell.classList.add("equalityCastleMove");
+          }
+        }
+
         if (cardState.activeMode === "exorcism") {
           const bishops = getExorcismBishopOptions();
+
           if (bishops.some(pos => pos.r === r && pos.c === c)) {
             cell.classList.add("exorcismCandidate");
           }
@@ -367,6 +388,7 @@ const Game = (() => {
 
         if (cardState.activeMode === "reactionaryPick") {
           const rooks = getReactionaryRookOptions();
+
           if (rooks.some(pos => pos.r === r && pos.c === c)) {
             cell.classList.add("reactionaryCandidate");
           }
@@ -374,6 +396,7 @@ const Game = (() => {
 
         if (cardState.activeMode === "spacePick") {
           const targets = getSpaceTravelPieces();
+
           if (targets.some(pos => pos.r === r && pos.c === c)) {
             cell.classList.add("spaceCandidate");
           }
@@ -381,6 +404,7 @@ const Game = (() => {
 
         if (cardState.activeMode === "necroPlace") {
           const places = getNecroPlaceMoves();
+
           if (places.some(pos => pos.r === r && pos.c === c)) {
             cell.classList.add("necroPlaceCandidate");
           }
@@ -393,6 +417,7 @@ const Game = (() => {
         }
 
         const piece = board[r][c];
+
         if (piece) {
           const img = document.createElement("img");
           img.src = imgs[piece];
@@ -407,7 +432,9 @@ const Game = (() => {
             cardState.activeMode === "reactionaryPick" ||
             cardState.activeMode === "spacePick" ||
             cardState.activeMode === "spacePlace" ||
-            cardState.activeMode === "necroPlace"
+            cardState.activeMode === "necroPlace" ||
+            cardState.activeMode === "equalityPickA" ||
+            cardState.activeMode === "equalityPickB"
           ) {
             return;
           }
@@ -471,6 +498,7 @@ const Game = (() => {
 
   function moveGhost(x, y) {
     if (!ghost) return;
+
     ghost.style.left = x + "px";
     ghost.style.top = y + "px";
   }
@@ -493,6 +521,16 @@ const Game = (() => {
   }
 
   function clickCell(r, c) {
+    if (cardState.activeMode === "equalityPickA") {
+      chooseEqualityFirst(r, c);
+      return;
+    }
+
+    if (cardState.activeMode === "equalityPickB") {
+      chooseEqualitySecond(r, c);
+      return;
+    }
+
     if (cardState.activeMode === "reactionaryPick") {
       chooseReactionaryRook(r, c);
       return;
@@ -779,21 +817,122 @@ const Game = (() => {
           cardState.reactionaryRook = { r: row, c: 3 };
         }
       }
-
-      if (legal?.type === "equalityCastleKing") {
-        if (cardState.reactionaryRook.r === from.r && cardState.reactionaryRook.c === 7) {
-          cardState.reactionaryRook = { r: from.r, c: from.c + 1 };
-        }
-      }
-
-      if (legal?.type === "equalityCastleQueen") {
-        if (cardState.reactionaryRook.r === from.r && cardState.reactionaryRook.c === 0) {
-          cardState.reactionaryRook = { r: from.r, c: from.c - 1 };
-        }
-      }
     }
 
     finishMoveTurn();
+  }
+
+  function getEqualityTargets() {
+    if (cardState.activeMode !== "equalityPickB") return [];
+    if (!cardState.selectedSquares[0]) return [];
+
+    const from = cardState.selectedSquares[0];
+    const moving = board[from.r]?.[from.c];
+
+    if (!moving) return [];
+
+    const result = [];
+    const row = from.r;
+    const color = moving[0];
+
+    for (const dc of [-3, 3]) {
+      const targetC = from.c + dc;
+
+      if (targetC < 0 || targetC > 7) continue;
+
+      const target = board[row][targetC];
+
+      if (!target || target[0] !== color) continue;
+
+      const dir = Math.sign(dc);
+
+      const mid1 = board[row][from.c + dir];
+      const mid2 = board[row][from.c + dir * 2];
+
+      if (mid1 || mid2) continue;
+
+      result.push({
+        r: row,
+        c: targetC,
+        type: "equalityCastle"
+      });
+    }
+
+    return result;
+  }
+
+  function chooseEqualityFirst(r, c) {
+    const piece = board[r]?.[c];
+
+    if (!piece || piece[0] !== turn[0]) {
+      alert("내 기물만 선택 가능합니다.");
+      return;
+    }
+
+    cardState.selectedSquares = [{ r, c }];
+    cardState.activeMode = "equalityPickB";
+
+    selected = { r, c };
+    moves = getEqualityTargets();
+
+    if (moves.length === 0) {
+      alert("이 기물은 평등국가 캐슬링 가능한 상대 기물이 없습니다.");
+      cardState.activeMode = "equalityPickA";
+      cardState.selectedSquares = [];
+      selected = null;
+      moves = [];
+    }
+
+    render();
+  }
+
+  function chooseEqualitySecond(r, c) {
+    const from = cardState.selectedSquares[0];
+
+    if (!from) {
+      cardState.activeMode = "equalityPickA";
+      render();
+      return;
+    }
+
+    const targets = getEqualityTargets();
+    const ok = targets.some(pos => pos.r === r && pos.c === c);
+
+    if (!ok) {
+      alert("같은 가로줄에서 사이 빈칸 2칸인 내 기물만 선택 가능합니다.");
+      return;
+    }
+
+    applyEqualityCastleSpecial(from, { r, c });
+
+    cardState.activeMode = null;
+    cardState.selectedSquares = [];
+    selected = null;
+    moves = [];
+
+    turn = turn === "white" ? "black" : "white";
+
+    syncCardUpdate();
+
+    renderCard();
+    render();
+  }
+
+  function applyEqualityCastleSpecial(a, b) {
+    const row = a.r;
+    const pieceA = board[a.r][a.c];
+    const pieceB = board[b.r][b.c];
+
+    const dir = Math.sign(b.c - a.c);
+
+    const aFinalC = a.c + dir * 2;
+    const bFinalC = a.c + dir;
+
+    board[a.r][a.c] = "";
+    board[b.r][b.c] = "";
+
+    board[row][bFinalC] = pieceB;
+    board[row][aFinalC] = pieceA;
   }
 
   function doExorcism(r, c) {
@@ -834,120 +973,18 @@ const Game = (() => {
   }
 
   function hasEqualityPassive(color) {
-    if (myCard !== "equality") return false;
-
-    if (!localMode && myColor) {
-      return color === myColor[0];
-    }
-
-    return true;
+    return false;
   }
 
   function getEqualityCastleMove(r, c, color, side) {
-    const homeRow = color === "w" ? 7 : 0;
-
-    if (r !== homeRow) return null;
-
-    if (side === "king") {
-      const rookC = 7;
-      const toC = c + 2;
-
-      if (toC > 7) return null;
-
-      if (color === "w") {
-        if (moved.wrH) return null;
-      } else {
-        if (moved.brH) return null;
-      }
-
-      if (board[homeRow][rookC] !== color + "r") return null;
-      if (board[homeRow][toC]) return null;
-
-      for (let x = Math.min(c, rookC) + 1; x <= Math.max(c, rookC) - 1; x++) {
-        if (x === c) continue;
-        if (board[homeRow][x]) return null;
-      }
-
-      return {
-        r: homeRow,
-        c: toC,
-        type: "equalityCastleKing"
-      };
-    }
-
-    if (side === "queen") {
-      const rookC = 0;
-      const toC = c - 2;
-
-      if (toC < 0) return null;
-
-      if (color === "w") {
-        if (moved.wrA) return null;
-      } else {
-        if (moved.brA) return null;
-      }
-
-      if (board[homeRow][rookC] !== color + "r") return null;
-      if (board[homeRow][toC]) return null;
-
-      for (let x = Math.min(c, rookC) + 1; x <= Math.max(c, rookC) - 1; x++) {
-        if (x === c) continue;
-        if (board[homeRow][x]) return null;
-      }
-
-      return {
-        r: homeRow,
-        c: toC,
-        type: "equalityCastleQueen"
-      };
-    }
-
     return null;
   }
 
   function addEqualityCastleMoves(r, c, piece, result) {
-    if (!piece) return;
-
-    const color = piece[0];
-
-    if (!hasEqualityPassive(color)) return;
-
-    const kingSide = getEqualityCastleMove(r, c, color, "king");
-    const queenSide = getEqualityCastleMove(r, c, color, "queen");
-
-    if (kingSide) result.push(kingSide);
-    if (queenSide) result.push(queenSide);
+    return;
   }
 
   function applyEqualityCastle(from, to, moving, type) {
-    const row = from.r;
-
-    if (type === "equalityCastleKing") {
-      board[to.r][to.c] = moving;
-      board[from.r][from.c] = "";
-
-      board[row][from.c + 1] = board[row][7];
-      board[row][7] = "";
-
-      if (moving[0] === "w") moved.wrH = true;
-      else moved.brH = true;
-
-      return true;
-    }
-
-    if (type === "equalityCastleQueen") {
-      board[to.r][to.c] = moving;
-      board[from.r][from.c] = "";
-
-      board[row][from.c - 1] = board[row][0];
-      board[row][0] = "";
-
-      if (moving[0] === "w") moved.wrA = true;
-      else moved.brA = true;
-
-      return true;
-    }
-
     return false;
   }
 
@@ -1050,6 +1087,7 @@ const Game = (() => {
           if (nr < 0 || nr > 7 || nc < 0 || nc > 7) return;
 
           const target = board[nr][nc];
+
           if (!target || target[0] !== color) {
             res.push({ r: nr, c: nc, type: "kingReturn" });
           }
@@ -1092,8 +1130,6 @@ const Game = (() => {
       }
     }
 
-    addEqualityCastleMoves(r, c, piece, res);
-
     return res;
   }
 
@@ -1102,6 +1138,26 @@ const Game = (() => {
     if (!area) return;
 
     const spaceTargets = getSpaceTravelPieces();
+
+    if (cardState.activeMode === "equalityPickA") {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">평등국가</div>
+          <div class="cardDesc">캐슬링할 첫 번째 내 기물을 선택하세요.</div>
+        </div>
+      `;
+      return;
+    }
+
+    if (cardState.activeMode === "equalityPickB") {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">평등국가</div>
+          <div class="cardDesc">사이에 빈칸 2칸이 있는 같은 가로줄의 내 기물을 선택하세요.</div>
+        </div>
+      `;
+      return;
+    }
 
     if (cardState.activeMode === "reactionaryPick") {
       area.innerHTML = `
@@ -1180,8 +1236,11 @@ const Game = (() => {
           <div class="cardTitle">${getCardName(myCard)}</div>
           <div class="cardDesc">
             ${getCardDescription(myCard)}<br>
-            <b>패시브 적용 중</b>
+            <b>사용 횟수 제한 없음</b>
           </div>
+          <button class="cardBtn" onclick="Game.activateCard()">
+            평등국가 사용
+          </button>
         </div>
       `;
       return;
@@ -1712,7 +1771,15 @@ const Game = (() => {
     const usedCard = myCard;
 
     if (usedCard === "equality") {
-      alert("평등국가는 패시브 능력입니다. 직접 사용할 필요가 없습니다.");
+      const result = useCard(usedCard, cardState);
+
+      alert(result.message);
+
+      selected = null;
+      moves = [];
+
+      renderCard();
+      render();
       return;
     }
 
