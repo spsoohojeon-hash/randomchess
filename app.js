@@ -34,7 +34,11 @@ const Game = (() => {
   let myCard = null;
   let cardState = createCardState();
   let pendingCardUse = null;
-  let reactionaryAutoPrompted = false;
+
+  let equalityUses = {
+    white: 0,
+    black: 0
+  };
 
   const imgs = {
     wp:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wp.png",
@@ -103,12 +107,16 @@ const Game = (() => {
 
     cardState = createCardState();
     pendingCardUse = null;
-    reactionaryAutoPrompted = false;
+
+    equalityUses = {
+      white: 0,
+      black: 0
+    };
 
     closeAllCardModals();
   }
 
-  function syncCardUpdate() {
+  function syncCardUpdate(equalityUsed = false) {
     if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
         type: "cardUpdate",
@@ -123,7 +131,8 @@ const Game = (() => {
           rook: cardState.reactionaryRook,
           checks: cardState.reactionaryChecks
         },
-        spaceTravelEnabled: cardState.spaceTravelEnabled
+        spaceTravelEnabled: cardState.spaceTravelEnabled,
+        equalityUsed
       }));
     }
   }
@@ -234,10 +243,13 @@ const Game = (() => {
           cardState.spaceTravelEnabled = data.spaceTravelEnabled;
         }
 
+        if (data.equalityUses) {
+          equalityUses = data.equalityUses;
+        }
+
         showGame();
         renderCard();
         render();
-        tryAutoReactionary();
         return;
       }
 
@@ -278,6 +290,10 @@ const Game = (() => {
           cardState.spaceTravelEnabled = !!data.spaceTravel[myColor];
         }
 
+        if (data.equalityUses) {
+          equalityUses = data.equalityUses;
+        }
+
         if (
           data.usedCards &&
           myColor &&
@@ -295,7 +311,22 @@ const Game = (() => {
 
         renderCard();
         render();
-        tryAutoReactionary();
+        return;
+      }
+
+      if (data.type === "reactionaryRequest") {
+        if (data.color) {
+          turn = data.color;
+        }
+
+        cardState.activeMode = "reactionaryPick";
+        selected = null;
+        moves = data.options || [];
+
+        alert(data.message || "킹이 잡혔습니다. 반동분자로 왕룩을 선택하세요.");
+
+        renderCard();
+        render();
         return;
       }
 
@@ -921,14 +952,34 @@ const Game = (() => {
 
     applyEqualityCastleSpecial(from, { r, c });
 
+    const usedColor = turn;
+
     cardState.activeMode = null;
     cardState.selectedSquares = [];
     selected = null;
     moves = [];
 
+    equalityUses[usedColor]++;
+
+    if (equalityUses[usedColor] >= 10) {
+      if (localMode) {
+        alert("게임 끝! 승자: " + usedColor);
+        renderCard();
+        render();
+        return;
+      }
+
+      turn = turn === "white" ? "black" : "white";
+      syncCardUpdate(true);
+
+      renderCard();
+      render();
+      return;
+    }
+
     turn = turn === "white" ? "black" : "white";
 
-    syncCardUpdate();
+    syncCardUpdate(true);
 
     renderCard();
     render();
@@ -1252,7 +1303,7 @@ const Game = (() => {
           <div class="cardTitle">${getCardName(myCard)}</div>
           <div class="cardDesc">
             ${getCardDescription(myCard)}<br>
-            <b>패시브 적용 중</b>
+            <b>킹이 잡혔을 때 조건부 발동</b>
           </div>
         </div>
       `;
@@ -1417,19 +1468,6 @@ const Game = (() => {
     }
 
     return turn;
-  }
-
-  function tryAutoReactionary() {
-    if (myCard !== "reactionary") return;
-    if (cardState.reactionaryActive) return;
-    if (cardState.activeMode === "reactionaryPick") return;
-    if (reactionaryAutoPrompted) return;
-
-    reactionaryAutoPrompted = true;
-
-    setTimeout(() => {
-      showReactionaryModal();
-    }, 0);
   }
 
   function getReactionaryRookOptions() {
@@ -1836,8 +1874,7 @@ const Game = (() => {
     }
 
     if (usedCard === "reactionary") {
-      alert("반동분자는 패시브 능력이라 자동으로 발동됩니다.");
-      tryAutoReactionary();
+      alert("반동분자는 패시브 능력입니다. 내 킹이 잡혔을 때 조건을 만족하면 발동됩니다.");
       return;
     }
 
