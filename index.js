@@ -127,12 +127,16 @@ function createRoom() {
     spaceTravel: {
       white: false,
       black: false
+    },
+    equalityUses: {
+      white: 0,
+      black: 0
     }
   };
 }
 
 function send(ws, data) {
-  if (ws.readyState === ws.OPEN) {
+  if (ws && ws.readyState === ws.OPEN) {
     ws.send(JSON.stringify(data));
   }
 }
@@ -143,6 +147,10 @@ function broadcast(room, data) {
 
 function otherColor(color) {
   return color === "white" ? "black" : "white";
+}
+
+function getPlayer(room, color) {
+  return room.players.find(p => p.color === color);
 }
 
 function clearPath(board, from, to) {
@@ -178,7 +186,7 @@ function validElephantMove(board, from, to) {
   return moves.some(([mr, mc]) => mr === dr && mc === dc);
 }
 
-function validEqualityCastle(room, from, to, color) {
+function validEqualityCastle() {
   return false;
 }
 
@@ -478,6 +486,68 @@ function checkReactionaryThreat(room, attackerColor) {
   return null;
 }
 
+function getReactionaryOptions(room, color) {
+  const result = [];
+
+  if (color === "white") {
+    if (room.moved.wk || room.moved.wrA || room.moved.wrH) {
+      return result;
+    }
+
+    if (room.board[7]?.[0] === "wr") {
+      result.push({ r: 7, c: 0, type: "normal" });
+    }
+
+    if (room.board[7]?.[7] === "wr") {
+      result.push({ r: 7, c: 7, type: "normal" });
+    }
+  }
+
+  if (color === "black") {
+    if (room.moved.bk || room.moved.brA || room.moved.brH) {
+      return result;
+    }
+
+    if (room.board[0]?.[0] === "br") {
+      result.push({ r: 0, c: 0, type: "normal" });
+    }
+
+    if (room.board[0]?.[7] === "br") {
+      result.push({ r: 0, c: 7, type: "normal" });
+    }
+  }
+
+  return result;
+}
+
+function tryTriggerReactionaryAfterKingCapture(room, defenderColor) {
+  if (room.cards[defenderColor] !== "reactionary") return false;
+  if (room.reactionary[defenderColor]?.active) return false;
+
+  const options = getReactionaryOptions(room, defenderColor);
+
+  if (options.length === 0) return false;
+
+  room.turn = defenderColor;
+
+  broadcast(room, makeUpdatePayload(room));
+
+  const defender = getPlayer(room, defenderColor);
+
+  if (defender) {
+    send(defender.ws, {
+      type: "reactionaryRequest",
+      color: defenderColor,
+      board: room.board,
+      turn: room.turn,
+      options,
+      message: "킹이 잡혔습니다. 반동분자로 왕룩을 선택하세요."
+    });
+  }
+
+  return true;
+}
+
 function makeUpdatePayload(room) {
   return {
     type: "update",
@@ -491,8 +561,19 @@ function makeUpdatePayload(room) {
     reactionary: room.reactionary,
     capturedBy: room.capturedBy,
     spaceTravel: room.spaceTravel,
-    usedCards: room.usedCards
+    usedCards: room.usedCards,
+    equalityUses: room.equalityUses
   };
+}
+
+function finishGame(room, winner) {
+  room.over = true;
+
+  broadcast(room, {
+    type: "gameover",
+    winner,
+    board: room.board
+  });
 }
 
 wss.on("connection", ws => {
@@ -544,7 +625,8 @@ wss.on("connection", ws => {
           moved: room.moved,
           card: room.cards[player.color],
           capturedPieces: room.capturedBy[player.color],
-          spaceTravelEnabled: room.spaceTravel[player.color]
+          spaceTravelEnabled: room.spaceTravel[player.color],
+          equalityUses: room.equalityUses
         });
       });
 
@@ -649,14 +731,7 @@ wss.on("connection", ws => {
       }
 
       if (captured && isReactionaryRook(room, opponent, to.r, to.c)) {
-        room.over = true;
-
-        broadcast(room, {
-          type:"gameover",
-          winner: color,
-          board
-        });
-
+        finishGame(room, color);
         return;
       }
 
@@ -669,14 +744,7 @@ wss.on("connection", ws => {
         capturedForNecro = captured;
 
         if (captured && isReactionaryRook(room, opponent, capRow, to.c)) {
-          room.over = true;
-
-          broadcast(room, {
-            type:"gameover",
-            winner: color,
-            board
-          });
-
+          finishGame(room, color);
           return;
         }
 
@@ -720,15 +788,14 @@ wss.on("connection", ws => {
         board[to.r][to.c] = moving[0] + promoteTo;
       }
 
-      if (captured && captured[1] === "k" && !room.reactionary[opponent].active) {
-        room.over = true;
+      if (captured && captured[1] === "k") {
+        const reactionaryTriggered = tryTriggerReactionaryAfterKingCapture(room, opponent);
 
-        broadcast(room, {
-          type:"gameover",
-          winner: color,
-          board
-        });
+        if (reactionaryTriggered) {
+          return;
+        }
 
+        finishGame(room, color);
         return;
       }
 
@@ -745,12 +812,7 @@ wss.on("connection", ws => {
       const reactionaryWinner = checkReactionaryThreat(room, color);
 
       if (reactionaryWinner) {
-        broadcast(room, {
-          type: "gameover",
-          winner: reactionaryWinner,
-          board
-        });
-
+        finishGame(room, reactionaryWinner);
         return;
       }
 
@@ -790,6 +852,15 @@ wss.on("connection", ws => {
         room.reactionary[color] = data.reactionary;
       }
 
+      if (data.equalityUsed) {
+        room.equalityUses[color]++;
+
+        if (room.equalityUses[color] >= 10) {
+          finishGame(room, color);
+          return;
+        }
+      }
+
       broadcast(room, makeUpdatePayload(room));
       return;
     }
@@ -798,16 +869,9 @@ wss.on("connection", ws => {
       const room = rooms[roomId];
       if (!room || room.over) return;
 
-      room.over = true;
-
       const winner = color === "white" ? "black" : "white";
 
-      broadcast(room, {
-        type: "gameover",
-        winner,
-        board: room.board
-      });
-
+      finishGame(room, winner);
       return;
     }
   });
