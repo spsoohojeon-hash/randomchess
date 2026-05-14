@@ -21,7 +21,7 @@ export const CARD_INFO = {
   },
   reactionary: {
     name: "반동분자",
-    desc: "패시브. 게임 시작 시 자동으로 왕룩을 지정한다. 왕룩이 잡히면 패배하고, 상대가 왕룩을 공격 가능한 위치로 이동할 때마다 위협 1회 누적된다. 3회 누적 시 패배."
+    desc: "패시브. 내 킹이 잡혔을 때 캐슬링을 둘 다 하지 않았다면 시작 위치의 룩 하나를 왕룩으로 지정해 살아남는다. 왕룩이 잡히면 패배하고, 상대가 왕룩을 공격 가능한 위치로 이동할 때마다 위협 1회 누적된다. 3회 누적 시 패배."
   },
   exorcism: {
     name: "퇴마(물리)",
@@ -67,27 +67,45 @@ export function getCardDescription(cardId) {
 }
 
 export function useCard(cardId, state) {
-  if (!cardId) return { ok: false, message: "카드가 없습니다." };
+  if (!cardId) {
+    return {
+      ok: false,
+      message: "카드가 없습니다."
+    };
+  }
 
   if (cardId === "wildHorse") {
     state.wildHorse = true;
-    return { ok: true, message: "존나 야생마 발동! 내 나이트가 상처럼 움직이고 기물을 뛰어넘습니다." };
+
+    return {
+      ok: true,
+      message: "존나 야생마 발동! 내 나이트가 상처럼 움직이고 기물을 뛰어넘습니다."
+    };
   }
 
   if (cardId === "doubleMove") {
     state.doubleMoveLeft = 2;
     state.doubleMoveActive = true;
-    return { ok: true, message: "더블무브 발동! 이번 턴에 2번 이동합니다." };
+
+    return {
+      ok: true,
+      message: "더블무브 발동! 이번 턴에 2번 이동합니다."
+    };
   }
 
   if (cardId === "spaceTravel") {
     state.spaceTravelEnabled = true;
-    return { ok: true, message: "우주여행 활성화! 조건을 만족한 기물이 있으면 텔레포트할 수 있습니다." };
+
+    return {
+      ok: true,
+      message: "우주여행 활성화! 조건을 만족한 기물이 있으면 텔레포트할 수 있습니다."
+    };
   }
 
   if (cardId === "equality") {
     state.activeMode = "equalityPickA";
     state.selectedSquares = [];
+
     return {
       ok: true,
       message: "평등국가 발동! 캐슬링할 첫 번째 내 기물을 선택하세요."
@@ -97,35 +115,56 @@ export function useCard(cardId, state) {
   if (cardId === "reactionary") {
     return {
       ok: false,
-      message: "반동분자는 패시브 능력이라 자동으로 발동됩니다."
+      message: "반동분자는 패시브 능력입니다. 내 킹이 잡혔을 때 조건을 만족하면 발동됩니다."
     };
   }
 
   if (cardId === "exorcism") {
     state.activeMode = "exorcism";
     state.selectedSquares = [];
-    return { ok: true, message: "퇴마(물리): 사용할 비숍을 선택하세요." };
+
+    return {
+      ok: true,
+      message: "퇴마(물리): 사용할 비숍을 선택하세요."
+    };
   }
 
   if (cardId === "necro") {
     if (state.necroUsed) {
-      return { ok: false, message: "네크로맨서는 이미 사용했습니다." };
+      return {
+        ok: false,
+        message: "네크로맨서는 이미 사용했습니다."
+      };
     }
 
     if (state.necroCapturedPieces.length === 0) {
-      return { ok: false, message: "아직 부활시킬 잡은 기물이 없습니다." };
+      return {
+        ok: false,
+        message: "아직 부활시킬 잡은 기물이 없습니다."
+      };
     }
 
     state.activeMode = "necroPick";
-    return { ok: true, message: "네크로맨서: 부활시킬 기물을 선택하세요." };
+
+    return {
+      ok: true,
+      message: "네크로맨서: 부활시킬 기물을 선택하세요."
+    };
   }
 
   if (cardId === "kingReturn") {
     state.activeMode = "kingReturn";
-    return { ok: true, message: "왕의 귀환 발동!" };
+
+    return {
+      ok: true,
+      message: "왕의 귀환 발동!"
+    };
   }
 
-  return { ok: false, message: "알 수 없는 카드입니다." };
+  return {
+    ok: false,
+    message: "알 수 없는 카드입니다."
+  };
 }
 
 export function getWildHorseMoves(r, c, board, color) {
