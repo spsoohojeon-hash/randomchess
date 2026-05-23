@@ -1,0 +1,14 @@
+<!DOCTYPE html><html><head><meta charset="UTF-8"><title>랜덤능력체스</title><meta name="viewport" content="width=device-width,initial-scale=1.0"><link rel="manifest" href="manifest.json"><link rel="stylesheet" href="style.css"></head><body>
+<section id="menu" class="screen"><div class="logo">♟</div><h1>랜덤능력체스</h1><p>체크 없이 킹을 잡으면 승리</p>
+<div class="panel"><h2>계정</h2><div id="accountStatus">로그인 안 됨</div><button onclick="Game.loginGoogle()">Google 로그인</button><button onclick="Game.logout()">로그아웃</button><div class="row"><input id="nicknameInput" placeholder="닉네임"><button onclick="Game.saveNickname()">저장</button></div></div>
+<button class="bigBtn" onclick="Game.startLocal()">로컬 2인 플레이</button>
+<div class="panel"><h2>온라인 방 만들기</h2><input id="createRoomName" placeholder="방 이름"><input id="createRoomPassword" placeholder="비밀번호 선택사항"><button onclick="Game.createOnlineRoom()">방 만들기</button></div>
+<div class="panel"><h2>온라인 방 찾기</h2><button onclick="Game.refreshRooms()">새로고침</button><div id="roomList" class="listBox"></div></div>
+<div class="panel"><h2>친구</h2><div class="row"><input id="friendNicknameInput" placeholder="친구 닉네임"><button onclick="Game.addFriend()">친구추가</button></div><h3>친구 요청</h3><div id="friendRequestList" class="listBox"></div><h3>내 친구</h3><div id="friendList" class="listBox"></div><h3>게임 초대</h3><div id="gameInviteList" class="listBox"></div></div></section>
+<section id="game" class="game hidden"><header><button onclick="Game.backMenu()">메뉴</button><button onclick="Game.resign()">기권</button></header><div id="status">대기중</div><div id="cardArea"></div><div id="board"></div></section>
+<div id="promotionModal" class="hidden modal"><div class="box"><h3>승급 선택</h3><button onclick="Game.choosePromotion('q')">퀸</button><button onclick="Game.choosePromotion('r')">룩</button><button onclick="Game.choosePromotion('b')">비숍</button><button onclick="Game.choosePromotion('n')">나이트</button></div></div>
+<div id="necroModal" class="hidden modal"><div class="box"><h3>네크로맨서</h3><div id="necroList"></div><button onclick="Game.cancelCardSelection()">취소</button></div></div>
+<div id="exorcismModal" class="hidden modal"><div class="box"><h3>퇴마(물리)</h3><div id="exorcismList"></div><button onclick="Game.cancelCardSelection()">취소</button></div></div>
+<div id="reactionaryModal" class="hidden modal"><div class="box"><h3>반동분자</h3><div id="reactionaryList"></div><button onclick="Game.cancelCardSelection()">취소</button></div></div>
+<div id="spaceModal" class="hidden modal"><div class="box"><h3>우주여행</h3><div id="spaceList"></div><button onclick="Game.cancelCardSelection()">취소</button></div></div>
+<script type="module" src="app.js"></script></body></html>
