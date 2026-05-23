@@ -205,7 +205,28 @@ const Game = (() => {
       alert("닉네임을 입력해라.");
       return;
     }
+async function loginGoogle() {
+  try {
+    const result = await signInWithPopup(auth, googleProvider);
+    const user = result.user;
 
+    currentUser = {
+      uid: user.uid,
+      name: user.displayName || user.email || "Google User",
+      email: user.email || "",
+      photoURL: user.photoURL || "",
+      provider: "google"
+    };
+
+    await saveUserProfile();
+    startFriendListeners();
+    renderAccount();
+
+    alert(currentUser.name + " 로그인됨");
+  } catch (err) {
+    alert("구글 로그인 실패: " + err.code + "\n" + err.message);
+  }
+}
     const uid = localStorage.getItem("randomChessGuestUid") || "guest-" + crypto.randomUUID();
     localStorage.setItem("randomChessGuestUid", uid);
     localStorage.setItem("randomChessGuestName", name);
