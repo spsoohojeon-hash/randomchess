@@ -10,12 +10,10 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/fireba
 import {
   getAuth,
   GoogleAuthProvider,
-  signInWithRedirect,
-  getRedirectResult,
+  signInWithPopup,
   signOut,
   onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-auth.js";
-import {
   getFirestore,
   doc,
   setDoc,
@@ -49,9 +47,7 @@ const auth = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
 const googleProvider = new GoogleAuthProvider();
 
-getRedirectResult(auth).catch(err => {
-  alert("구글 로그인 처리 실패: " + err.code + "\n" + err.message);
-});
+
 
 const Game = (() => {
   const SERVER = "wss://randomchess.onrender.com";
