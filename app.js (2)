@@ -1,1 +1,2350 @@
-import{createCardState,useCard,getWildHorseMoves,getCardName,getCardDescription}from"./cards.js";import{watchLoginState,loginWithGoogle,logoutGoogle,setNickname,getFirebaseProfile,sendFriendRequest,watchFriendRequests,acceptFriendRequest,watchFriends,sendGameInvite,watchGameInvites,deleteGameInvite}from"./firebase.js";window.onerror=m=>alert("에러: "+m);const Game=(()=>{const SERVER=location.protocol==="https:"?`wss://${location.host}`:"ws://localhost:3000";let ws=null,board=[],turn="white",selected=null,moves=[],localMode=true,myColor=null,roomId=null,roomName=null,enPassant=null,myCard=null,cardState=createCardState(),pendingCardUse=null,equalityUses={white:0,black:0},moved={wk:false,wrA:false,wrH:false,bk:false,brA:false,brH:false};const imgs={wp:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wp.png",wr:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wr.png",wn:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wn.png",wb:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wb.png",wq:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wq.png",wk:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wk.png",bp:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bp.png",br:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/br.png",bn:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bn.png",bb:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bb.png",bq:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bq.png",bk:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bk.png"};function prof(){return getFirebaseProfile()?.nickname||"익명"}function sock(){if(ws&&ws.readyState===1)return;ws=new WebSocket(SERVER);ws.onopen=()=>refreshRooms();ws.onmessage=e=>{const d=JSON.parse(e.data);if(d.type==="roomList")return renderRooms(d.rooms||[]);if(d.type==="waiting"){roomId=d.roomId;roomName=d.roomName;showGame();status(d.message);document.getElementById("board").innerHTML="";return}if(d.type==="start"){localMode=false;myColor=d.color;myCard=d.card;board=d.board;turn=d.turn;roomName=d.roomName;enPassant=d.enPassant;moved=d.moved;equalityUses=d.equalityUses||equalityUses;cardState.necroCapturedPieces=d.capturedPieces||[];cardState.spaceTravelEnabled=!!d.spaceTravelEnabled;showGame();renderCard();render();return}if(d.type==="update"){board=d.board;turn=d.turn;enPassant=d.enPassant;moved=d.moved;equalityUses=d.equalityUses||equalityUses;if(d.doubleMove&&myColor){cardState.doubleMoveLeft=d.doubleMove[myColor];cardState.doubleMoveActive=cardState.doubleMoveLeft>0}if(d.wildHorse&&myColor)cardState.wildHorse=d.wildHorse[myColor];if(d.capturedBy&&myColor)cardState.necroCapturedPieces=d.capturedBy[myColor]||[];if(d.spaceTravel&&myColor)cardState.spaceTravelEnabled=!!d.spaceTravel[myColor];if(d.usedCards&&myColor&&d.usedCards[myColor]&&!['equality','reactionary','spaceTravel'].includes(myCard))myCard=null;selected=null;moves=[];renderCard();render();return}if(d.type==="gameover"){board=d.board;render();alert("게임 끝! 승자: "+d.winner);return}if(d.type==="error")alert(d.message);if(d.type==="full")alert("방이 가득 참")}}function send(d){sock();if(ws.readyState===1)ws.send(JSON.stringify(d));else ws.addEventListener("open",()=>ws.send(JSON.stringify(d)),{once:true})}watchLoginState((u,p)=>{document.getElementById("accountStatus").innerHTML=p?`로그인됨: <b>${p.nickname}</b>`:"로그인 안 됨";if(p){document.getElementById("nicknameInput").value=p.nickname||"";watchFriendRequests(renderReq);watchFriends(renderFriends);watchGameInvites(renderInv)}});function renderReq(a){const b=document.getElementById("friendRequestList");b.innerHTML=a.length?"":"<div class='listItem'>요청 없음</div>";a.forEach(r=>{const e=document.createElement("div");e.className="listItem";e.innerHTML=`<b>${r.fromNickname}</b><br><button>수락</button>`;e.querySelector("button").onclick=()=>acceptFriendRequest(r.id);b.appendChild(e)})}function renderFriends(a){const b=document.getElementById("friendList");b.innerHTML=a.length?"":"<div class='listItem'>친구 없음</div>";a.forEach(f=>{const e=document.createElement("div");e.className="listItem";e.innerHTML=`<b>${f.nickname}</b><br><button>현재 방 초대</button>`;e.querySelector("button").onclick=()=>roomName?sendGameInvite(f.uid,f.nickname,roomName,document.getElementById("createRoomPassword").value||""):alert("먼저 방 만들기");b.appendChild(e)})}function renderInv(a){const b=document.getElementById("gameInviteList");b.innerHTML=a.length?"":"<div class='listItem'>초대 없음</div>";a.forEach(i=>{const e=document.createElement("div");e.className="listItem";e.innerHTML=`${i.fromNickname} 초대 / 방:${i.roomName}<br><button>확인</button>`;e.querySelector("button").onclick=()=>{deleteGameInvite(i.id);alert("방 목록에서 "+i.roomName+" 입장")};b.appendChild(e)})}function renderRooms(a){const b=document.getElementById("roomList");b.innerHTML=a.length?"":"<div class='listItem'>열린 방 없음</div>";a.forEach(r=>{const e=document.createElement("div");e.className="listItem";e.innerHTML=`<b>${r.locked?'🔒 ':''}${r.name}</b><br>방장:${r.hostName} / ${r.players}/2<br><button>입장</button>`;e.querySelector("button").onclick=()=>joinRoom(r.id,r.locked?prompt("비밀번호")||"":"");b.appendChild(e)})}function loginGoogle(){loginWithGoogle().catch(e=>alert(e.message))}function logout(){logoutGoogle()}function saveNickname(){setNickname(document.getElementById("nicknameInput").value).then(()=>alert("저장됨")).catch(e=>alert(e.message))}function addFriend(){sendFriendRequest(document.getElementById("friendNicknameInput").value).then(()=>alert("요청 보냄")).catch(e=>alert(e.message))}function refreshRooms(){send({type:"listRooms"})}function createOnlineRoom(){const name=document.getElementById("createRoomName").value.trim();if(!name)return alert("방 이름 입력");reset();localMode=false;roomName=name;send({type:"createRoom",name,password:document.getElementById("createRoomPassword").value,hostName:prof()})}function joinRoom(id,password=""){reset();localMode=false;send({type:"joinRoom",roomId:id,password,nickname:prof()})}function startLocal(){localMode=true;myColor=null;roomName=null;myCard=null;reset();showGame();renderCard();render()}function reset(){board=[['br','bn','bb','bq','bk','bb','bn','br'],['bp','bp','bp','bp','bp','bp','bp','bp'],['','','','','','','',''],['','','','','','','',''],['','','','','','','',''],['','','','','','','',''],['wp','wp','wp','wp','wp','wp','wp','wp'],['wr','wn','wb','wq','wk','wb','wn','wr']];turn='white';selected=null;moves=[];enPassant=null;moved={wk:false,wrA:false,wrH:false,bk:false,brA:false,brH:false};cardState=createCardState();equalityUses={white:0,black:0}}function showGame(){document.getElementById('menu').classList.add('hidden');document.getElementById('game').classList.remove('hidden')}function backMenu(){document.getElementById('game').classList.add('hidden');document.getElementById('menu').classList.remove('hidden');refreshRooms()}function status(t){document.getElementById('status').textContent=t}function resign(){alert('기권');if(!localMode)send({type:'resign'})}function render(){const bd=document.getElementById('board');bd.innerHTML='';status((localMode?'로컬':`온라인 ${roomName||''} / 내 색:${myColor||'대기'}`)+` | ${turn} 턴`);for(let r=0;r<8;r++)for(let c=0;c<8;c++){const cell=document.createElement('div');cell.className='cell '+((r+c)%2?'dark':'light');if(selected&&selected.r===r&&selected.c===c)cell.classList.add('selected');const legal=moves.find(m=>m.r===r&&m.c===c);if(legal)cell.classList.add(board[r][c]?'capture':'move');const p=board[r][c];if(p){const im=document.createElement('img');im.src=imgs[p];cell.appendChild(im)}cell.onclick=()=>click(r,c);bd.appendChild(cell)}}function canSel(r,c){const p=board[r]?.[c];return p&&p[0]===turn[0]&&(localMode||!myColor||p[0]===myColor[0])}function click(r,c){if(!selected){if(!canSel(r,c))return;selected={r,c};moves=getMoves(r,c);render();return}tryMove(selected,{r,c})}async function tryMove(f,t){if(!moves.some(m=>m.r===t.r&&m.c===t.c)){selected=null;moves=[];render();return}let promoteTo=null;const moving=board[f.r][f.c];if(moving[1]==='p'&&(t.r===0||t.r===7))promoteTo=await askPromotion();if(localMode){applyMove(f,t,promoteTo);selected=null;moves=[];render()}else{send({type:'move',from:f,to:t,promoteTo});selected=null;moves=[];render()}}function askPromotion(){document.getElementById('promotionModal').classList.remove('hidden');return new Promise(res=>window._promo=res)}function choosePromotion(p){document.getElementById('promotionModal').classList.add('hidden');window._promo?.(p)}function applyMove(f,t,pr){const m=board[f.r][f.c],cap=board[t.r][t.c];board[t.r][t.c]=m;board[f.r][f.c]='';if(m[1]==='p'&&(t.r===0||t.r===7))board[t.r][t.c]=m[0]+(pr||'q');if(cap&&cap[1]==='k'){alert('게임 끝! 승자:'+turn);return}turn=turn==='white'?'black':'white'}function getMoves(r,c){const p=board[r]?.[c];if(!p)return[];const color=p[0],type=p[1],res=[];const add=(nr,nc)=>{if(nr<0||nr>7||nc<0||nc>7)return;if(!board[nr][nc]||board[nr][nc][0]!==color)res.push({r:nr,c:nc,type:'normal'})};const slide=ds=>ds.forEach(([dr,dc])=>{let nr=r+dr,nc=c+dc;while(nr>=0&&nr<8&&nc>=0&&nc<8){if(!board[nr][nc])res.push({r:nr,c:nc,type:'normal'});else{if(board[nr][nc][0]!==color)res.push({r:nr,c:nc,type:'normal'});break}nr+=dr;nc+=dc}});if(type==='p'){const d=color==='w'?-1:1,s=color==='w'?6:1;if(!board[r+d]?.[c])add(r+d,c);if(r===s&&!board[r+d]?.[c]&&!board[r+d*2]?.[c])add(r+d*2,c);[-1,1].forEach(dc=>{const t=board[r+d]?.[c+dc];if(t&&t[0]!==color)add(r+d,c+dc)})}if(type==='n'){if(cardState.wildHorse)return getWildHorseMoves(r,c,board,color);[[2,1],[1,2],[-1,2],[-2,1],[-2,-1],[-1,-2],[1,-2],[2,-1]].forEach(x=>add(r+x[0],c+x[1]))}if(type==='b')slide([[1,1],[1,-1],[-1,1],[-1,-1]]);if(type==='r')slide([[1,0],[-1,0],[0,1],[0,-1]]);if(type==='q')slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);if(type==='k')for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++)if(dr||dc)add(r+dr,c+dc);return res}function activateCard(){if(!myCard)return alert('카드 없음');const r=useCard(myCard,cardState);alert(r.message);if(myCard==='wildHorse'||myCard==='doubleMove'){if(!localMode)send({type:'card',card:myCard});myCard=null}renderCard();render()}function renderCard(){const a=document.getElementById('cardArea');if(!a)return;if(!myCard){a.innerHTML='';return}a.innerHTML=`<div class="cardBox"><div class="cardTitle">${getCardName(myCard)}</div><div class="cardDesc">${getCardDescription(myCard)}</div><button class="cardBtn" onclick="Game.activateCard()">능력 사용</button></div>`}function cancelCardSelection(){}function chooseExorcismBishop(){}function chooseReactionaryRook(){}function chooseSpacePiece(){}function chooseNecroPiece(){}sock();return{loginGoogle,logout,saveNickname,addFriend,refreshRooms,createOnlineRoom,startLocal,backMenu,resign,choosePromotion,activateCard,cancelCardSelection,chooseExorcismBishop,chooseReactionaryRook,chooseSpacePiece,chooseNecroPiece,activateSpaceTravel:()=>alert('우주여행 UI는 카드에서 실행')}})();window.Game=Game;
+import {
+  createCardState,
+  useCard,
+  getWildHorseMoves,
+  getCardName,
+  getCardDescription
+} from "./cards.js";
+
+import { firebaseConfig } from "./firebase-config.js";
+
+import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
+import {
+  getAuth,
+  GoogleAuthProvider,
+  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
+  signOut,
+  onAuthStateChanged
+} from "https://www.gstatic.com/firebasejs/12.13.0/firebase-auth.js";
+
+import {
+  getFirestore,
+  doc,
+  setDoc,
+  getDoc,
+  collection,
+  query,
+  where,
+  getDocs,
+  serverTimestamp,
+  addDoc
+} from "https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js";
+
+window.onerror = function(msg) {
+  alert("에러: " + msg);
+};
+
+const firebaseApp = initializeApp(firebaseConfig);
+const auth = getAuth(firebaseApp);
+const db = getFirestore(firebaseApp);
+const googleProvider = new GoogleAuthProvider();
+
+const Game = (() => {
+  const SERVER = "wss://randomchess.onrender.com";
+
+  let ws = null;
+  let board = [];
+  let turn = "white";
+  let selected = null;
+  let moves = [];
+  let localMode = true;
+  let myColor = null;
+  let roomCode = null;
+  let enPassant = null;
+  let touchFrom = null;
+  let ghost = null;
+  let promotionResolve = null;
+  let pendingJoinRoom = null;
+
+  let currentUser = null;
+
+  let moved = {
+    wk:false, wrA:false, wrH:false,
+    bk:false, brA:false, brH:false
+  };
+
+  let myCard = null;
+  let cardState = createCardState();
+  let pendingCardUse = null;
+
+  let equalityUses = {
+    white: 0,
+    black: 0
+  };
+
+  const imgs = {
+    wp:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wp.png",
+    wr:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wr.png",
+    wn:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wn.png",
+    wb:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wb.png",
+    wq:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wq.png",
+    wk:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wk.png",
+    bp:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bp.png",
+    br:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/br.png",
+    bn:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bn.png",
+    bb:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bb.png",
+    bq:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bq.png",
+    bk:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bk.png"
+  };
+
+  function createBoard() {
+    return [
+      ["br","bn","bb","bq","bk","bb","bn","br"],
+      ["bp","bp","bp","bp","bp","bp","bp","bp"],
+      ["","","","","","","",""],
+      ["","","","","","","",""],
+      ["","","","","","","",""],
+      ["","","","","","","",""],
+      ["wp","wp","wp","wp","wp","wp","wp","wp"],
+      ["wr","wn","wb","wq","wk","wb","wn","wr"]
+    ];
+  }
+
+  function getDisplayName() {
+    if (currentUser?.displayName) return currentUser.displayName;
+    if (currentUser?.email) return currentUser.email.split("@")[0];
+    return localStorage.getItem("randomchess_nick") || "guest";
+  }
+
+  function getUid() {
+    if (currentUser?.uid) return currentUser.uid;
+    return localStorage.getItem("randomchess_uid") || "";
+  }
+
+  function squareName(r, c) {
+    return `${String.fromCharCode(97 + c)}${8 - r}`;
+  }
+
+  function closeAllCardModals() {
+    document.getElementById("necroModal")?.classList.add("hidden");
+    document.getElementById("exorcismModal")?.classList.add("hidden");
+    document.getElementById("reactionaryModal")?.classList.add("hidden");
+    document.getElementById("spaceModal")?.classList.add("hidden");
+  }
+
+  function cancelCardSelection() {
+    closeAllCardModals();
+
+    pendingCardUse = null;
+    cardState.activeMode = null;
+    cardState.selectedSquares = [];
+
+    selected = null;
+    moves = [];
+
+    renderCard();
+    render();
+  }
+
+  function resetState() {
+    board = createBoard();
+    turn = "white";
+    selected = null;
+    moves = [];
+    enPassant = null;
+
+    moved = {
+      wk:false, wrA:false, wrH:false,
+      bk:false, brA:false, brH:false
+    };
+
+    cardState = createCardState();
+    pendingCardUse = null;
+
+    equalityUses = {
+      white: 0,
+      black: 0
+    };
+
+    closeAllCardModals();
+  }
+
+  function updateLoginUI() {
+    const el = document.getElementById("loginState");
+    if (!el) return;
+
+    if (currentUser) {
+      el.textContent = `로그인됨: ${getDisplayName()}`;
+      return;
+    }
+
+    const nick = localStorage.getItem("randomchess_nick");
+
+    if (nick) {
+      el.textContent = `닉네임 로그인됨: ${nick}`;
+      return;
+    }
+
+    el.textContent = "로그인 안 됨";
+  }
+
+  async function loginNickname() {
+    const nick = document.getElementById("nickInput")?.value.trim();
+    const pass = document.getElementById("passInput")?.value;
+
+    if (!nick) {
+      alert("닉네임을 입력해라.");
+      return;
+    }
+
+    if (!pass) {
+      alert("비밀번호를 입력해라.");
+      return;
+    }
+
+    const uid = "nick_" + nick.toLowerCase();
+
+    localStorage.setItem("randomchess_nick", nick);
+    localStorage.setItem("randomchess_pass", pass);
+    localStorage.setItem("randomchess_uid", uid);
+
+    try {
+      await setDoc(doc(db, "users", uid), {
+        uid,
+        nickname: nick,
+        loginType: "nickname",
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+    } catch (err) {
+      console.log(err);
+    }
+
+    currentUser = null;
+    updateLoginUI();
+    alert("닉네임 로그인 완료");
+  }
+
+  async function loginGoogle() {
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      currentUser = result.user;
+
+      await setDoc(doc(db, "users", currentUser.uid), {
+        uid: currentUser.uid,
+        nickname: currentUser.displayName || currentUser.email || "googleUser",
+        email: currentUser.email || "",
+        loginType: "google",
+        updatedAt: serverTimestamp()
+      }, { merge: true });
+
+      updateLoginUI();
+      alert("Google 로그인 완료");
+    } catch (err) {
+      console.log(err);
+
+      try {
+        await signInWithRedirect(auth, googleProvider);
+      } catch (err2) {
+        console.log(err2);
+        alert("Google 로그인 실패. Firebase Google 로그인/Authorized domains 설정 확인해라.");
+      }
+    }
+  }
+
+  async function logout() {
+    try {
+      await signOut(auth);
+    } catch (err) {
+      console.log(err);
+    }
+
+    currentUser = null;
+    localStorage.removeItem("randomchess_nick");
+    localStorage.removeItem("randomchess_pass");
+    localStorage.removeItem("randomchess_uid");
+
+    updateLoginUI();
+    alert("로그아웃 완료");
+  }
+
+  onAuthStateChanged(auth, async user => {
+    currentUser = user;
+
+    if (user) {
+      try {
+        await setDoc(doc(db, "users", user.uid), {
+          uid: user.uid,
+          nickname: user.displayName || user.email || "googleUser",
+          email: user.email || "",
+          loginType: "google",
+          updatedAt: serverTimestamp()
+        }, { merge: true });
+      } catch (err) {
+        console.log(err);
+      }
+    }
+
+    updateLoginUI();
+  });
+
+  getRedirectResult(auth).then(result => {
+    if (result?.user) {
+      currentUser = result.user;
+      updateLoginUI();
+    }
+  }).catch(err => console.log(err));
+
+  function ensureSocket(callback) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      callback();
+      return;
+    }
+
+    if (ws) {
+      try {
+        ws.close();
+      } catch {}
+    }
+
+    ws = new WebSocket(SERVER);
+
+    ws.onopen = () => {
+      setupSocketHandlers();
+      callback();
+    };
+
+    ws.onerror = () => {
+      alert("서버 연결 에러. Render 배포 상태 확인해라.");
+    };
+
+    ws.onclose = () => {
+      console.log("서버 연결 끊김");
+    };
+  }
+
+  function setupSocketHandlers() {
+    ws.onmessage = e => {
+      const data = JSON.parse(e.data);
+
+      if (data.type === "roomList") {
+        renderRoomList(data.rooms || []);
+        return;
+      }
+
+      if (data.type === "roomCreated") {
+        const info = data.roomInfo;
+        if (info?.id) {
+          roomCode = info.id;
+          alert(`방 생성됨: ${info.name} / 코드 ${info.id}`);
+        }
+        return;
+      }
+
+      if (data.type === "waiting") {
+        localMode = false;
+        if (data.roomInfo?.id) roomCode = data.roomInfo.id;
+        showGame();
+        status("상대 기다리는 중...");
+        document.getElementById("board").innerHTML = "";
+        return;
+      }
+
+      if (data.type === "start") {
+        localMode = false;
+        myCard = data.card;
+        myColor = data.color;
+        board = data.board;
+        turn = data.turn;
+        enPassant = data.enPassant || null;
+        moved = data.moved || moved;
+
+        if (data.roomInfo?.id) roomCode = data.roomInfo.id;
+
+        if (data.capturedPieces) {
+          cardState.necroCapturedPieces = data.capturedPieces;
+        }
+
+        if (data.spaceTravelEnabled !== undefined) {
+          cardState.spaceTravelEnabled = data.spaceTravelEnabled;
+        }
+
+        if (data.equalityUses) {
+          equalityUses = data.equalityUses;
+        }
+
+        showGame();
+        renderCard();
+        render();
+        return;
+      }
+
+      if (data.type === "update") {
+        board = data.board;
+        turn = data.turn;
+        enPassant = data.enPassant || null;
+        moved = data.moved || moved;
+
+        if (data.roomInfo?.id) roomCode = data.roomInfo.id;
+
+        if (data.doubleMove && myColor) {
+          cardState.doubleMoveLeft = data.doubleMove[myColor];
+          cardState.doubleMoveActive = cardState.doubleMoveLeft > 0;
+        }
+
+        if (data.wildHorse && myColor) {
+          cardState.wildHorse = data.wildHorse[myColor];
+        }
+
+        if (data.kingReturn && myColor) {
+          cardState.kingReturn = data.kingReturn[myColor] || null;
+        }
+
+        if (data.reactionary && myColor) {
+          const myReactionary = data.reactionary[myColor];
+
+          if (myReactionary) {
+            cardState.reactionaryActive = myReactionary.active;
+            cardState.reactionaryRook = myReactionary.rook;
+            cardState.reactionaryChecks = myReactionary.checks;
+          }
+        }
+
+        if (data.capturedBy && myColor) {
+          cardState.necroCapturedPieces = data.capturedBy[myColor] || [];
+        }
+
+        if (data.spaceTravel && myColor) {
+          cardState.spaceTravelEnabled = !!data.spaceTravel[myColor];
+        }
+
+        if (data.equalityUses) {
+          equalityUses = data.equalityUses;
+        }
+
+        if (
+          data.usedCards &&
+          myColor &&
+          data.usedCards[myColor] &&
+          myCard !== "equality" &&
+          myCard !== "reactionary" &&
+          myCard !== "spaceTravel"
+        ) {
+          myCard = null;
+        }
+
+        selected = null;
+        moves = [];
+        removeGhost();
+
+        renderCard();
+        render();
+        return;
+      }
+
+      if (data.type === "reactionaryRequest") {
+        if (data.color) {
+          turn = data.color;
+        }
+
+        cardState.activeMode = "reactionaryPick";
+        selected = null;
+        moves = data.options || [];
+
+        alert(data.message || "킹이 잡혔습니다. 반동분자로 왕룩을 선택하세요.");
+
+        renderCard();
+        render();
+        return;
+      }
+
+      if (data.type === "gameover") {
+        board = data.board;
+
+        removeGhost();
+        render();
+
+        alert("게임 끝! 승자: " + data.winner);
+        return;
+      }
+
+      if (data.type === "opponentLeft") {
+        alert(data.message || "상대가 나갔습니다.");
+        return;
+      }
+
+      if (data.type === "full") {
+        alert("방이 가득 참");
+        return;
+      }
+
+      if (data.type === "error") {
+        alert(data.message);
+        return;
+      }
+    };
+  }
+
+  function showGame() {
+    document.getElementById("menu").classList.add("hidden");
+    document.getElementById("game").classList.remove("hidden");
+  }
+
+  function backMenu() {
+    removeGhost();
+    closeAllCardModals();
+    document.getElementById("game").classList.add("hidden");
+    document.getElementById("menu").classList.remove("hidden");
+    refreshRooms();
+    refreshFriends();
+  }
+
+  function status(text) {
+    document.getElementById("status").textContent = text;
+  }
+
+  function startLocal() {
+    localMode = true;
+    myColor = null;
+    roomCode = null;
+    myCard = null;
+    resetState();
+    showGame();
+    renderCard();
+    render();
+  }
+
+  function createOnlineRoom() {
+    const name = document.getElementById("roomNameInput")?.value.trim() || `${getDisplayName()}의 방`;
+    const password = document.getElementById("roomPasswordInput")?.value || "";
+    const isPrivate = !!document.getElementById("privateRoomInput")?.checked;
+
+    resetState();
+    localMode = false;
+
+    ensureSocket(() => {
+      ws.send(JSON.stringify({
+        type: "createRoom",
+        name,
+        password,
+        isPrivate,
+        hostName: getDisplayName(),
+        hostUid: getUid()
+      }));
+    });
+  }
+
+  function refreshRooms() {
+    ensureSocket(() => {
+      ws.send(JSON.stringify({
+        type: "listRooms"
+      }));
+    });
+  }
+
+  function renderRoomList(rooms) {
+    const list = document.getElementById("roomList");
+    if (!list) return;
+
+    list.innerHTML = "";
+
+    if (rooms.length === 0) {
+      list.innerHTML = `<div class="roomItem"><div class="roomMeta">공개 방이 없음</div></div>`;
+      return;
+    }
+
+    rooms.forEach(room => {
+      const box = document.createElement("div");
+      box.className = "roomItem";
+
+      box.innerHTML = `
+        <div class="roomTitle">${escapeHtml(room.name)}</div>
+        <div class="roomMeta">
+          코드: ${room.id}<br>
+          호스트: ${escapeHtml(room.hostName || "unknown")}<br>
+          인원: ${room.players}/${room.maxPlayers}<br>
+          ${room.hasPassword ? "비밀번호 있음" : "비밀번호 없음"}
+        </div>
+        <div class="roomBtns">
+          <button data-room="${room.id}">입장</button>
+        </div>
+      `;
+
+      box.querySelector("button").onclick = () => openJoinModal(room);
+
+      list.appendChild(box);
+    });
+  }
+
+  function openJoinModal(room) {
+    pendingJoinRoom = room;
+
+    document.getElementById("joinTitle").textContent = `${room.name} 입장`;
+    document.getElementById("joinPasswordInput").value = "";
+    document.getElementById("joinPasswordInput").placeholder = room.hasPassword ? "방 비밀번호" : "비밀번호 없음";
+
+    document.getElementById("joinModal").classList.remove("hidden");
+  }
+
+  function closeJoinModal() {
+    pendingJoinRoom = null;
+    document.getElementById("joinModal").classList.add("hidden");
+  }
+
+  function confirmJoinRoom() {
+    if (!pendingJoinRoom) return;
+
+    const password = document.getElementById("joinPasswordInput")?.value || "";
+
+    joinRoomById(pendingJoinRoom.id, password);
+    closeJoinModal();
+  }
+
+  function joinRoomById(id, password = "") {
+    resetState();
+    localMode = false;
+    roomCode = id;
+
+    ensureSocket(() => {
+      ws.send(JSON.stringify({
+        type: "joinRoom",
+        roomId: id,
+        password,
+        uid: getUid(),
+        name: getDisplayName()
+      }));
+    });
+  }
+
+  function copyInvite() {
+    if (!roomCode) {
+      alert("현재 방 코드가 없음");
+      return;
+    }
+
+    const text = `랜덤능력체스 초대 코드: ${roomCode}`;
+
+    navigator.clipboard?.writeText(text)
+      .then(() => alert("초대 코드 복사됨"))
+      .catch(() => alert(text));
+  }
+
+  async function addFriend() {
+    const target = document.getElementById("friendInput")?.value.trim();
+
+    if (!target) {
+      alert("친구 닉네임 또는 UID를 입력해라.");
+      return;
+    }
+
+    const myUid = getUid();
+
+    if (!myUid) {
+      alert("먼저 로그인해라.");
+      return;
+    }
+
+    try {
+      let targetUid = target;
+      let targetName = target;
+
+      const usersRef = collection(db, "users");
+      const q = query(usersRef, where("nickname", "==", target));
+      const snap = await getDocs(q);
+
+      if (!snap.empty) {
+        const data = snap.docs[0].data();
+        targetUid = data.uid || snap.docs[0].id;
+        targetName = data.nickname || target;
+      }
+
+      await setDoc(doc(db, "users", myUid, "friends", targetUid), {
+        uid: targetUid,
+        nickname: targetName,
+        addedAt: serverTimestamp()
+      }, { merge: true });
+
+      alert("친구 추가 완료");
+      refreshFriends();
+    } catch (err) {
+      console.log(err);
+      alert("친구 추가 실패. Firestore 설정 확인해라.");
+    }
+  }
+
+  async function refreshFriends() {
+    const list = document.getElementById("friendList");
+    if (!list) return;
+
+    const myUid = getUid();
+
+    if (!myUid) {
+      list.innerHTML = `<div class="friendItem"><div class="friendMeta">로그인 필요</div></div>`;
+      return;
+    }
+
+    try {
+      const snap = await getDocs(collection(db, "users", myUid, "friends"));
+
+      list.innerHTML = "";
+
+      if (snap.empty) {
+        list.innerHTML = `<div class="friendItem"><div class="friendMeta">친구 없음</div></div>`;
+        return;
+      }
+
+      snap.forEach(docSnap => {
+        const f = docSnap.data();
+
+        const box = document.createElement("div");
+        box.className = "friendItem";
+
+        box.innerHTML = `
+          <div class="friendTitle">${escapeHtml(f.nickname || f.uid || "친구")}</div>
+          <div class="friendMeta">UID: ${escapeHtml(f.uid || "")}</div>
+          <div class="friendBtns">
+            <button>현재 방 초대복사</button>
+          </div>
+        `;
+
+        box.querySelector("button").onclick = () => {
+          if (!roomCode) {
+            alert("현재 온라인 방이 없습니다.");
+            return;
+          }
+
+          const text = `${f.nickname || "친구"}님 랜덤능력체스 초대 코드: ${roomCode}`;
+          navigator.clipboard?.writeText(text)
+            .then(() => alert("친구 초대문 복사됨"))
+            .catch(() => alert(text));
+        };
+
+        list.appendChild(box);
+      });
+    } catch (err) {
+      console.log(err);
+      list.innerHTML = `<div class="friendItem"><div class="friendMeta">친구 목록 불러오기 실패</div></div>`;
+    }
+  }
+
+  function resign() {
+    const winner = turn === "white" ? "black" : "white";
+    alert("기권! 승자: " + winner);
+
+    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: "resign"
+      }));
+    }
+  }
+
+  function syncCardUpdate(equalityUsed = false) {
+    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: "cardUpdate",
+        board,
+        turn,
+        enPassant,
+        moved,
+        necroCapturedPieces: cardState.necroCapturedPieces,
+        kingReturn: cardState.kingReturn,
+        reactionary: {
+          active: cardState.reactionaryActive,
+          rook: cardState.reactionaryRook,
+          checks: cardState.reactionaryChecks
+        },
+        spaceTravelEnabled: cardState.spaceTravelEnabled,
+        equalityUsed
+      }));
+    }
+  }
+
+  function consumeCurrentCard() {
+    const usedCard = pendingCardUse || myCard;
+
+    if (!usedCard) return;
+
+    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: "card",
+        card: usedCard
+      }));
+    }
+
+    if (usedCard === myCard) {
+      myCard = null;
+    }
+
+    pendingCardUse = null;
+    renderCard();
+  }
+
+  function render() {
+    const boardDiv = document.getElementById("board");
+    boardDiv.innerHTML = "";
+
+    status(
+      (localMode ? "로컬 2인" : `온라인 ${roomCode || "대기"} / 내 색: ${myColor || "대기중"}`)
+      + ` | ${turn} 턴`
+    );
+
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const cell = document.createElement("div");
+        cell.className = "cell " + ((r + c) % 2 === 0 ? "light" : "dark");
+        cell.dataset.r = r;
+        cell.dataset.c = c;
+
+        if (selected && selected.r === r && selected.c === c) {
+          cell.classList.add("selected");
+        }
+
+        const legal = moves.find(m => m.r === r && m.c === c);
+
+        if (legal) {
+          if (
+            legal.type === "equalityCastle" ||
+            legal.type === "equalityCastleKing" ||
+            legal.type === "equalityCastleQueen"
+          ) {
+            cell.classList.add("equalityCastleMove");
+          } else if (board[r][c] || legal.type === "enPassant") {
+            cell.classList.add("capture");
+          } else {
+            cell.classList.add("move");
+          }
+        }
+
+        if (cardState.activeMode === "equalityPickA") {
+          const piece = board[r]?.[c];
+
+          if (piece && piece[0] === turn[0]) {
+            cell.classList.add("equalityCastleMove");
+          }
+        }
+
+        if (cardState.activeMode === "equalityPickB") {
+          const targets = getEqualityTargets();
+
+          if (targets.some(pos => pos.r === r && pos.c === c)) {
+            cell.classList.add("equalityCastleMove");
+          }
+        }
+
+        if (cardState.activeMode === "exorcism") {
+          const bishops = getExorcismBishopOptions();
+
+          if (bishops.some(pos => pos.r === r && pos.c === c)) {
+            cell.classList.add("exorcismCandidate");
+          }
+        }
+
+        if (cardState.activeMode === "reactionaryPick") {
+          const rooks = getReactionaryRookOptions();
+
+          if (rooks.some(pos => pos.r === r && pos.c === c)) {
+            cell.classList.add("reactionaryCandidate");
+          }
+        }
+
+        if (cardState.activeMode === "spacePick") {
+          const targets = getSpaceTravelPieces();
+
+          if (targets.some(pos => pos.r === r && pos.c === c)) {
+            cell.classList.add("spaceCandidate");
+          }
+        }
+
+        if (cardState.activeMode === "necroPlace") {
+          const places = getNecroPlaceMoves();
+
+          if (places.some(pos => pos.r === r && pos.c === c)) {
+            cell.classList.add("necroPlaceCandidate");
+          }
+        }
+
+        if (cardState.reactionaryActive && cardState.reactionaryRook) {
+          if (cardState.reactionaryRook.r === r && cardState.reactionaryRook.c === c) {
+            cell.classList.add("selected");
+          }
+        }
+
+        const piece = board[r][c];
+
+        if (piece) {
+          const img = document.createElement("img");
+          img.src = imgs[piece];
+          cell.appendChild(img);
+        }
+
+        cell.onclick = () => clickCell(r, c);
+
+        cell.ontouchstart = ev => {
+          if (
+            cardState.activeMode === "exorcism" ||
+            cardState.activeMode === "reactionaryPick" ||
+            cardState.activeMode === "spacePick" ||
+            cardState.activeMode === "spacePlace" ||
+            cardState.activeMode === "necroPlace" ||
+            cardState.activeMode === "equalityPickA" ||
+            cardState.activeMode === "equalityPickB"
+          ) {
+            return;
+          }
+
+          if (!canSelect(r, c)) return;
+
+          ev.preventDefault();
+
+          selected = { r, c };
+          touchFrom = { r, c };
+          moves = getMoves(r, c);
+
+          render();
+
+          const pieceNow = board[r][c];
+
+          removeGhost();
+
+          ghost = document.createElement("img");
+          ghost.src = imgs[pieceNow];
+          ghost.className = "dragGhost";
+          document.body.appendChild(ghost);
+
+          const t = ev.touches[0];
+          moveGhost(t.clientX, t.clientY);
+        };
+
+        cell.ontouchmove = ev => {
+          if (!ghost) return;
+          ev.preventDefault();
+
+          const t = ev.touches[0];
+          moveGhost(t.clientX, t.clientY);
+        };
+
+        cell.ontouchend = ev => {
+          if (!touchFrom) return;
+
+          ev.preventDefault();
+
+          const t = ev.changedTouches[0];
+          const el = document.elementFromPoint(t.clientX, t.clientY);
+          const target = el?.closest(".cell");
+
+          removeGhost();
+
+          if (target) {
+            tryMove(touchFrom, {
+              r: Number(target.dataset.r),
+              c: Number(target.dataset.c)
+            });
+          }
+
+          touchFrom = null;
+        };
+
+        boardDiv.appendChild(cell);
+      }
+    }
+  }
+
+  function moveGhost(x, y) {
+    if (!ghost) return;
+
+    ghost.style.left = x + "px";
+    ghost.style.top = y + "px";
+  }
+
+  function removeGhost() {
+    if (ghost) {
+      ghost.remove();
+      ghost = null;
+    }
+  }
+
+  function canSelect(r, c) {
+    const piece = board[r]?.[c];
+
+    if (!piece) return false;
+    if (piece[0] !== turn[0]) return false;
+    if (!localMode && myColor && piece[0] !== myColor[0]) return false;
+
+    return true;
+  }
+
+  function clickCell(r, c) {
+    if (cardState.activeMode === "equalityPickA") {
+      chooseEqualityFirst(r, c);
+      return;
+    }
+
+    if (cardState.activeMode === "equalityPickB") {
+      chooseEqualitySecond(r, c);
+      return;
+    }
+
+    if (cardState.activeMode === "reactionaryPick") {
+      chooseReactionaryRook(r, c);
+      return;
+    }
+
+    if (cardState.activeMode === "spacePick") {
+      chooseSpacePiece(r, c);
+      return;
+    }
+
+    if (cardState.activeMode === "spacePlace") {
+      doSpaceTravelTo(r, c);
+      return;
+    }
+
+    if (cardState.activeMode === "necroPlace") {
+      doNecroPlace(r, c);
+      return;
+    }
+
+    if (cardState.activeMode === "exorcism") {
+      chooseExorcismBishop(r, c);
+      return;
+    }
+
+    if (!selected) {
+      if (!canSelect(r, c)) return;
+
+      selected = { r, c };
+      moves = getMoves(r, c);
+      render();
+      return;
+    }
+
+    tryMove(selected, { r, c });
+  }
+
+  async function tryMove(from, to) {
+    const legal = moves.find(m => m.r === to.r && m.c === to.c);
+
+    if (!legal) {
+      selected = null;
+      moves = [];
+      touchFrom = null;
+      render();
+      return;
+    }
+
+    let promoteTo = null;
+
+    const moving = board[from.r][from.c];
+    const target = board[to.r][to.c];
+
+    if (cardState.doubleMoveActive && cardState.doubleMoveLeft > 0 && target && target[1] === "k") {
+      alert("더블무브 중에는 킹을 잡을 수 없음");
+      selected = null;
+      moves = [];
+      touchFrom = null;
+      render();
+      return;
+    }
+
+    if (moving[1] === "p" && (to.r === 0 || to.r === 7)) {
+      promoteTo = await askPromotion();
+    }
+
+    if (localMode) {
+      applyMove(from, to, promoteTo);
+      selected = null;
+      moves = [];
+      touchFrom = null;
+      render();
+    } else if (ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type:"move",
+        from,
+        to,
+        promoteTo
+      }));
+
+      selected = null;
+      moves = [];
+      touchFrom = null;
+      render();
+    }
+  }
+
+  function askPromotion() {
+    document.getElementById("promotionModal").classList.remove("hidden");
+
+    return new Promise(resolve => {
+      promotionResolve = resolve;
+    });
+  }
+
+  function choosePromotion(piece) {
+    document.getElementById("promotionModal").classList.add("hidden");
+
+    if (promotionResolve) {
+      promotionResolve(piece);
+      promotionResolve = null;
+    }
+  }
+
+  function finishMoveTurn() {
+    if (cardState.doubleMoveLeft > 1) {
+      cardState.doubleMoveLeft--;
+    } else {
+      cardState.doubleMoveLeft = 0;
+      cardState.doubleMoveActive = false;
+      turn = turn === "white" ? "black" : "white";
+    }
+  }
+
+  function applyMove(from, to, promoteTo) {
+    const moving = board[from.r][from.c];
+    let captured = board[to.r][to.c];
+
+    if (captured && captured[0] !== moving[0] && captured[1] !== "k") {
+      cardState.necroCapturedPieces.push(captured);
+    }
+
+    const legal = getMoves(from.r, from.c).find(m => m.r === to.r && m.c === to.c);
+
+    updateMoved(moving, from);
+    enPassant = null;
+
+    if (legal?.type === "enPassant") {
+      const capRow = moving[0] === "w" ? to.r + 1 : to.r - 1;
+      captured = board[capRow][to.c];
+
+      if (captured && captured[0] !== moving[0] && captured[1] !== "k") {
+        cardState.necroCapturedPieces.push(captured);
+      }
+
+      board[capRow][to.c] = "";
+    }
+
+    board[to.r][to.c] = moving;
+    board[from.r][from.c] = "";
+
+    if (legal?.type === "doublePawn") {
+      const dir = moving[0] === "w" ? -1 : 1;
+      enPassant = {
+        r: from.r + dir,
+        c: from.c
+      };
+    }
+
+    if (legal?.type === "castleKing") {
+      const row = moving[0] === "w" ? 7 : 0;
+      board[row][5] = board[row][7];
+      board[row][7] = "";
+    }
+
+    if (legal?.type === "castleQueen") {
+      const row = moving[0] === "w" ? 7 : 0;
+      board[row][3] = board[row][0];
+      board[row][0] = "";
+    }
+
+    if (moving[1] === "p" && (to.r === 0 || to.r === 7)) {
+      board[to.r][to.c] = moving[0] + (promoteTo || "q");
+    }
+
+    if (captured && captured[1] === "k") {
+      alert("게임 끝! 승자: " + turn);
+      return;
+    }
+
+    if (moving[1] === "k" && cardState.kingReturn && cardState.kingReturn.turns > 0) {
+      cardState.kingReturn.turns--;
+
+      if (cardState.kingReturn.turns <= 0) {
+        cardState.kingReturn = null;
+      }
+    }
+
+    if (cardState.reactionaryActive && cardState.reactionaryRook) {
+      if (cardState.reactionaryRook.r === from.r && cardState.reactionaryRook.c === from.c) {
+        cardState.reactionaryRook = { r: to.r, c: to.c };
+      }
+
+      if (legal?.type === "castleKing") {
+        const row = moving[0] === "w" ? 7 : 0;
+        if (cardState.reactionaryRook.r === row && cardState.reactionaryRook.c === 7) {
+          cardState.reactionaryRook = { r: row, c: 5 };
+        }
+      }
+
+      if (legal?.type === "castleQueen") {
+        const row = moving[0] === "w" ? 7 : 0;
+        if (cardState.reactionaryRook.r === row && cardState.reactionaryRook.c === 0) {
+          cardState.reactionaryRook = { r: row, c: 3 };
+        }
+      }
+    }
+
+    finishMoveTurn();
+  }
+
+  function updateMoved(piece, from) {
+    if (piece === "wk") moved.wk = true;
+    if (piece === "bk") moved.bk = true;
+
+    if (piece === "wr" && from.r === 7 && from.c === 0) moved.wrA = true;
+    if (piece === "wr" && from.r === 7 && from.c === 7) moved.wrH = true;
+    if (piece === "br" && from.r === 0 && from.c === 0) moved.brA = true;
+    if (piece === "br" && from.r === 0 && from.c === 7) moved.brH = true;
+  }
+
+  function getMoves(r, c) {
+    const piece = board[r]?.[c];
+
+    if (!piece) return [];
+
+    const color = piece[0];
+    const type = piece[1];
+    const res = [];
+
+    const add = (nr, nc, kind = "normal") => {
+      if (nr < 0 || nr > 7 || nc < 0 || nc > 7) return;
+
+      if (!board[nr][nc] || board[nr][nc][0] !== color) {
+        res.push({ r: nr, c: nc, type: kind });
+      }
+    };
+
+    const slide = dirs => {
+      for (const [dr, dc] of dirs) {
+        let nr = r + dr;
+        let nc = c + dc;
+
+        while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+          if (!board[nr][nc]) {
+            res.push({ r: nr, c: nc, type: "normal" });
+          } else {
+            if (board[nr][nc][0] !== color) {
+              res.push({ r: nr, c: nc, type: "normal" });
+            }
+            break;
+          }
+
+          nr += dr;
+          nc += dc;
+        }
+      }
+    };
+
+    if (type === "p") {
+      const dir = color === "w" ? -1 : 1;
+      const start = color === "w" ? 6 : 1;
+
+      if (!board[r + dir]?.[c]) add(r + dir, c);
+
+      if (r === start && !board[r + dir]?.[c] && !board[r + dir * 2]?.[c]) {
+        add(r + dir * 2, c, "doublePawn");
+      }
+
+      for (const dc of [-1, 1]) {
+        const target = board[r + dir]?.[c + dc];
+
+        if (target && target[0] !== color) add(r + dir, c + dc);
+
+        if (enPassant && enPassant.r === r + dir && enPassant.c === c + dc) {
+          res.push({ r: r + dir, c: c + dc, type: "enPassant" });
+        }
+      }
+    }
+
+    if (type === "n") {
+      if (cardState.wildHorse) {
+        return getWildHorseMoves(r, c, board, color);
+      }
+
+      [
+        [2,1],[1,2],[-1,2],[-2,1],
+        [-2,-1],[-1,-2],[1,-2],[2,-1]
+      ].forEach(([dr, dc]) => add(r + dr, c + dc));
+    }
+
+    if (type === "b") slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
+    if (type === "r") slide([[1,0],[-1,0],[0,1],[0,-1]]);
+    if (type === "q") slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
+
+    if (type === "k") {
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          if (dr || dc) add(r + dr, c + dc);
+        }
+      }
+
+      if (cardState.kingReturn && cardState.kingReturn.turns > 0) {
+        const mode = cardState.kingReturn.mode;
+
+        const addKingReturnMove = (dr, dc) => {
+          const nr = r + dr;
+          const nc = c + dc;
+
+          if (nr < 0 || nr > 7 || nc < 0 || nc > 7) return;
+
+          const target = board[nr][nc];
+
+          if (!target || target[0] !== color) {
+            res.push({ r: nr, c: nc, type: "kingReturn" });
+          }
+        };
+
+        if (mode === "bn" || mode === "qn") {
+          [
+            [2,1],[1,2],[-1,2],[-2,1],
+            [-2,-1],[-1,-2],[1,-2],[2,-1]
+          ].forEach(([dr, dc]) => addKingReturnMove(dr, dc));
+        }
+
+        if (mode === "bn") {
+          slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
+        }
+
+        if (mode === "q" || mode === "qn") {
+          slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
+        }
+      }
+
+      if (color === "w" && r === 7 && c === 4 && !moved.wk) {
+        if (!moved.wrH && board[7][5] === "" && board[7][6] === "" && board[7][7] === "wr") {
+          add(7, 6, "castleKing");
+        }
+
+        if (!moved.wrA && board[7][1] === "" && board[7][2] === "" && board[7][3] === "" && board[7][0] === "wr") {
+          add(7, 2, "castleQueen");
+        }
+      }
+
+      if (color === "b" && r === 0 && c === 4 && !moved.bk) {
+        if (!moved.brH && board[0][5] === "" && board[0][6] === "" && board[0][7] === "br") {
+          add(0, 6, "castleKing");
+        }
+
+        if (!moved.brA && board[0][1] === "" && board[0][2] === "" && board[0][3] === "" && board[0][0] === "br") {
+          add(0, 2, "castleQueen");
+        }
+      }
+    }
+
+    return res;
+  }
+
+  function getEqualityTargets() {
+    if (cardState.activeMode !== "equalityPickB") return [];
+    if (!cardState.selectedSquares[0]) return [];
+
+    const from = cardState.selectedSquares[0];
+    const moving = board[from.r]?.[from.c];
+
+    if (!moving) return [];
+
+    const result = [];
+    const row = from.r;
+    const color = moving[0];
+
+    for (const dc of [-3, 3]) {
+      const targetC = from.c + dc;
+
+      if (targetC < 0 || targetC > 7) continue;
+
+      const target = board[row][targetC];
+
+      if (!target || target[0] !== color) continue;
+
+      const dir = Math.sign(dc);
+
+      const mid1 = board[row][from.c + dir];
+      const mid2 = board[row][from.c + dir * 2];
+
+      if (mid1 || mid2) continue;
+
+      result.push({ r: row, c: targetC, type: "equalityCastle" });
+    }
+
+    return result;
+  }
+
+  function chooseEqualityFirst(r, c) {
+    const piece = board[r]?.[c];
+
+    if (!piece || piece[0] !== turn[0]) {
+      alert("내 기물만 선택 가능합니다.");
+      return;
+    }
+
+    cardState.selectedSquares = [{ r, c }];
+    cardState.activeMode = "equalityPickB";
+
+    selected = { r, c };
+    moves = getEqualityTargets();
+
+    if (moves.length === 0) {
+      alert("이 기물은 평등국가 캐슬링 가능한 상대 기물이 없습니다.");
+      cardState.activeMode = "equalityPickA";
+      cardState.selectedSquares = [];
+      selected = null;
+      moves = [];
+    }
+
+    render();
+  }
+
+  function chooseEqualitySecond(r, c) {
+    const from = cardState.selectedSquares[0];
+
+    if (!from) {
+      cardState.activeMode = "equalityPickA";
+      render();
+      return;
+    }
+
+    const targets = getEqualityTargets();
+    const ok = targets.some(pos => pos.r === r && pos.c === c);
+
+    if (!ok) {
+      alert("같은 가로줄에서 사이 빈칸 2칸인 내 기물만 선택 가능합니다.");
+      return;
+    }
+
+    applyEqualityCastleSpecial(from, { r, c });
+
+    const usedColor = turn;
+
+    cardState.activeMode = null;
+    cardState.selectedSquares = [];
+    selected = null;
+    moves = [];
+
+    equalityUses[usedColor]++;
+
+    if (equalityUses[usedColor] >= 10) {
+      if (localMode) {
+        alert("게임 끝! 승자: " + usedColor);
+        renderCard();
+        render();
+        return;
+      }
+
+      turn = turn === "white" ? "black" : "white";
+      syncCardUpdate(true);
+
+      renderCard();
+      render();
+      return;
+    }
+
+    turn = turn === "white" ? "black" : "white";
+
+    syncCardUpdate(true);
+
+    renderCard();
+    render();
+  }
+
+  function applyEqualityCastleSpecial(a, b) {
+    const row = a.r;
+    const pieceA = board[a.r][a.c];
+    const pieceB = board[b.r][b.c];
+
+    const dir = Math.sign(b.c - a.c);
+
+    const aFinalC = a.c + dir * 2;
+    const bFinalC = a.c + dir;
+
+    board[a.r][a.c] = "";
+    board[b.r][b.c] = "";
+
+    board[row][bFinalC] = pieceB;
+    board[row][aFinalC] = pieceA;
+  }
+
+  function doExorcism(r, c) {
+    const bishop = board[r][c];
+    if (!bishop) return;
+
+    const color = bishop[0];
+    const dir = color === "w" ? -1 : 1;
+
+    for (let dc = -1; dc <= 1; dc++) {
+      const nr = r + dir;
+      const nc = c + dc;
+
+      if (nr < 0 || nr > 7 || nc < 0 || nc > 7) continue;
+
+      const target = board[nr][nc];
+
+      if (target && target[1] === "k") {
+        alert("퇴마(물리)로 킹 제거! 승자: " + turn);
+        board[nr][nc] = "";
+        return;
+      }
+
+      board[nr][nc] = "";
+    }
+
+    turn = turn === "white" ? "black" : "white";
+  }
+
+  function getExorcismBishopOptions() {
+    const result = [];
+    const color = turn[0];
+
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        if (board[r][c] === color + "b") {
+          result.push({ r, c });
+        }
+      }
+    }
+
+    return result;
+  }
+
+  function showExorcismModal() {
+    const modal = document.getElementById("exorcismModal");
+    const list = document.getElementById("exorcismList");
+
+    const bishops = getExorcismBishopOptions();
+
+    if (bishops.length === 0) {
+      alert("사용할 수 있는 비숍이 없습니다.");
+      cancelCardSelection();
+      return;
+    }
+
+    list.innerHTML = "";
+
+    bishops.forEach(pos => {
+      const btn = document.createElement("button");
+      btn.className = "selectBtn";
+      btn.textContent = `비숍 ${squareName(pos.r, pos.c)}`;
+      btn.onclick = () => chooseExorcismBishop(pos.r, pos.c);
+      list.appendChild(btn);
+    });
+
+    cardState.activeMode = "exorcism";
+    pendingCardUse = myCard;
+
+    selected = null;
+    moves = [];
+
+    modal.classList.remove("hidden");
+    render();
+  }
+
+  function chooseExorcismBishop(r, c) {
+    const piece = board[r]?.[c];
+
+    if (!piece || piece[0] !== turn[0] || piece[1] !== "b") {
+      alert("퇴마(물리)는 내 비숍만 사용할 수 있습니다.");
+      return;
+    }
+
+    closeAllCardModals();
+
+    doExorcism(r, c);
+
+    cardState.activeMode = null;
+    selected = null;
+    moves = [];
+
+    consumeCurrentCard();
+    syncCardUpdate();
+
+    renderCard();
+    render();
+  }
+
+  function getReactionaryOwnerColor() {
+    if (!localMode && myColor) {
+      return myColor;
+    }
+
+    return turn;
+  }
+
+  function getReactionaryRookOptions() {
+    const result = [];
+    const owner = getReactionaryOwnerColor();
+
+    if (owner === "white") {
+      if (moved.wk || moved.wrA || moved.wrH) {
+        return result;
+      }
+
+      if (board[7]?.[0] === "wr") {
+        result.push({ r: 7, c: 0 });
+      }
+
+      if (board[7]?.[7] === "wr") {
+        result.push({ r: 7, c: 7 });
+      }
+    }
+
+    if (owner === "black") {
+      if (moved.bk || moved.brA || moved.brH) {
+        return result;
+      }
+
+      if (board[0]?.[0] === "br") {
+        result.push({ r: 0, c: 0 });
+      }
+
+      if (board[0]?.[7] === "br") {
+        result.push({ r: 0, c: 7 });
+      }
+    }
+
+    return result;
+  }
+
+  function showReactionaryModal() {
+    const modal = document.getElementById("reactionaryModal");
+    const list = document.getElementById("reactionaryList");
+
+    const rooks = getReactionaryRookOptions();
+
+    if (rooks.length === 0) {
+      alert("선택 가능한 룩이 없습니다. 캐슬링 관련 기물이 움직였거나 룩이 없습니다.");
+      cancelCardSelection();
+      return;
+    }
+
+    list.innerHTML = "";
+
+    rooks.forEach(pos => {
+      const btn = document.createElement("button");
+      btn.className = "selectBtn";
+      btn.textContent = `룩 ${squareName(pos.r, pos.c)}`;
+      btn.onclick = () => chooseReactionaryRook(pos.r, pos.c);
+      list.appendChild(btn);
+    });
+
+    cardState.activeMode = "reactionaryPick";
+    pendingCardUse = null;
+
+    selected = null;
+    moves = rooks.map(pos => ({
+      r: pos.r,
+      c: pos.c,
+      type: "normal"
+    }));
+
+    modal.classList.remove("hidden");
+    render();
+  }
+
+  function chooseReactionaryRook(r, c) {
+    const owner = getReactionaryOwnerColor();
+    const piece = board[r]?.[c];
+
+    if (!piece || piece[0] !== owner[0] || piece[1] !== "r") {
+      alert("내 룩만 왕룩으로 선택 가능합니다.");
+      return;
+    }
+
+    const options = getReactionaryRookOptions();
+    const ok = options.some(pos => pos.r === r && pos.c === c);
+
+    if (!ok) {
+      alert("캐슬링 둘 다 하지 않은 상태의 시작 위치 룩만 선택 가능합니다.");
+      return;
+    }
+
+    closeAllCardModals();
+
+    cardState.reactionaryActive = true;
+    cardState.reactionaryRook = { r, c };
+    cardState.reactionaryChecks = 0;
+    cardState.activeMode = null;
+
+    selected = null;
+    moves = [];
+
+    syncCardUpdate();
+
+    alert("왕룩 지정 완료. 이 룩이 잡히면 패배합니다.");
+
+    renderCard();
+    render();
+  }
+
+  function getSpaceTravelPieces() {
+    if (!cardState.spaceTravelEnabled) return [];
+
+    if (!localMode && myColor && turn !== myColor) {
+      return [];
+    }
+
+    const color = turn[0];
+    const result = [];
+
+    const corners = color === "w"
+      ? [{ r: 0, c: 0 }, { r: 0, c: 7 }]
+      : [{ r: 7, c: 0 }, { r: 7, c: 7 }];
+
+    for (const pos of corners) {
+      const piece = board[pos.r]?.[pos.c];
+
+      if (piece && piece[0] === color) {
+        result.push({ r: pos.r, c: pos.c, type: "normal" });
+      }
+    }
+
+    return result;
+  }
+
+  function getSpaceDestinationMoves(color) {
+    const result = [];
+
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const target = board[r][c];
+
+        if (!target) {
+          result.push({ r, c, type: "normal" });
+          continue;
+        }
+
+        if (target[0] !== color && target[1] !== "k") {
+          result.push({ r, c, type: "normal" });
+        }
+      }
+    }
+
+    return result;
+  }
+
+  function activateSpaceTravel() {
+    showSpaceModal();
+  }
+
+  function showSpaceModal() {
+    const modal = document.getElementById("spaceModal");
+    const list = document.getElementById("spaceList");
+
+    const targets = getSpaceTravelPieces();
+
+    if (targets.length === 0) {
+      alert("텔레포트 가능한 기물이 없습니다.");
+      cancelCardSelection();
+      return;
+    }
+
+    list.innerHTML = "";
+
+    targets.forEach(pos => {
+      const piece = board[pos.r][pos.c];
+
+      const btn = document.createElement("button");
+      btn.className = "selectBtn";
+      btn.textContent = `${pieceName(piece)} ${squareName(pos.r, pos.c)}`;
+      btn.onclick = () => chooseSpacePiece(pos.r, pos.c);
+      list.appendChild(btn);
+    });
+
+    cardState.activeMode = "spacePick";
+    cardState.selectedSquares = [];
+
+    selected = null;
+    moves = targets;
+
+    modal.classList.remove("hidden");
+    render();
+  }
+
+  function chooseSpacePiece(r, c) {
+    const piece = board[r]?.[c];
+
+    if (!piece || piece[0] !== turn[0]) {
+      alert("텔레포트 가능한 내 기물만 선택 가능합니다.");
+      return;
+    }
+
+    const targets = getSpaceTravelPieces();
+    const ok = targets.some(pos => pos.r === r && pos.c === c);
+
+    if (!ok) {
+      alert("상대 진영 코너에 도착한 기물만 선택 가능합니다.");
+      return;
+    }
+
+    closeAllCardModals();
+
+    cardState.selectedSquares = [{ r, c }];
+    cardState.activeMode = "spacePlace";
+
+    selected = { r, c };
+    moves = getSpaceDestinationMoves(piece[0]);
+
+    alert("이동할 칸을 선택하세요. 상대 기물은 잡을 수 있지만 킹은 못 잡습니다.");
+    renderCard();
+    render();
+  }
+
+  function doSpaceTravelTo(r, c) {
+    const from = cardState.selectedSquares[0];
+
+    if (!from) {
+      alert("텔레포트할 기물이 선택되지 않았습니다.");
+      cardState.activeMode = null;
+      cardState.selectedSquares = [];
+      selected = null;
+      moves = [];
+      render();
+      return;
+    }
+
+    const piece = board[from.r]?.[from.c];
+    const target = board[r]?.[c];
+
+    if (!piece) {
+      alert("텔레포트할 기물이 없음");
+      cardState.activeMode = null;
+      cardState.selectedSquares = [];
+      selected = null;
+      moves = [];
+      render();
+      return;
+    }
+
+    if (target && target[0] === piece[0]) {
+      alert("내 기물이 있는 칸으로는 텔레포트할 수 없습니다.");
+      return;
+    }
+
+    if (target && target[1] === "k") {
+      alert("우주여행으로 킹은 잡을 수 없습니다.");
+      return;
+    }
+
+    if (target && target[0] !== piece[0] && target[1] !== "k") {
+      cardState.necroCapturedPieces.push(target);
+    }
+
+    board[r][c] = piece;
+    board[from.r][from.c] = "";
+
+    cardState.selectedSquares = [];
+    cardState.activeMode = null;
+
+    selected = null;
+    moves = [];
+
+    turn = turn === "white" ? "black" : "white";
+
+    syncCardUpdate();
+    renderCard();
+    render();
+  }
+
+  function showNecroModal() {
+    const modal = document.getElementById("necroModal");
+    const list = document.getElementById("necroList");
+
+    if (cardState.necroCapturedPieces.length === 0) {
+      alert("부활시킬 수 있는 잡은 기물이 없습니다.");
+      cancelCardSelection();
+      return;
+    }
+
+    list.innerHTML = "";
+
+    cardState.necroCapturedPieces.forEach((piece, index) => {
+      const btn = document.createElement("button");
+      btn.className = "selectBtn";
+      btn.textContent = `${pieceName(piece)} (${piece[0] === "w" ? "백" : "흑"})`;
+      btn.onclick = () => chooseNecroPiece(index);
+      list.appendChild(btn);
+    });
+
+    cardState.activeMode = "necroPick";
+    pendingCardUse = myCard;
+
+    selected = null;
+    moves = [];
+
+    modal.classList.remove("hidden");
+    render();
+  }
+
+  function chooseNecroPiece(index) {
+    const piece = cardState.necroCapturedPieces[index];
+
+    if (!piece) {
+      alert("선택한 기물이 없습니다.");
+      return;
+    }
+
+    cardState.necroSelectedPiece = piece;
+    cardState.activeMode = "necroPlace";
+
+    moves = getNecroPlaceMoves();
+    selected = null;
+
+    closeAllCardModals();
+
+    if (moves.length === 0) {
+      alert("킹 주변에 부활 가능한 빈칸이 없습니다.");
+      cardState.necroSelectedPiece = null;
+      cardState.activeMode = null;
+      moves = [];
+      render();
+      return;
+    }
+
+    alert("킹 주변 빈칸을 선택하세요.");
+    render();
+  }
+
+  function doNecroPlace(r, c) {
+    if (board[r][c]) {
+      alert("빈칸만 가능");
+      return;
+    }
+
+    const kingPos = findMyKing();
+
+    if (!kingPos) {
+      alert("킹 없음");
+      return;
+    }
+
+    const near =
+      Math.abs(kingPos.r - r) <= 1 &&
+      Math.abs(kingPos.c - c) <= 1;
+
+    if (!near) {
+      alert("킹 주변만 가능");
+      return;
+    }
+
+    const color = turn[0];
+    const type = cardState.necroSelectedPiece[1];
+
+    board[r][c] = color + type;
+
+    cardState.necroUsed = true;
+
+    const usedIndex = cardState.necroCapturedPieces.findIndex(
+      p => p === cardState.necroSelectedPiece
+    );
+
+    if (usedIndex !== -1) {
+      cardState.necroCapturedPieces.splice(usedIndex, 1);
+    }
+
+    cardState.necroSelectedPiece = null;
+    cardState.activeMode = null;
+
+    selected = null;
+    moves = [];
+
+    turn = turn === "white" ? "black" : "white";
+
+    consumeCurrentCard();
+    syncCardUpdate();
+
+    renderCard();
+    render();
+  }
+
+  function getNecroPlaceMoves() {
+    const kingPos = findMyKing();
+    if (!kingPos) return [];
+
+    const result = [];
+
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+
+        const r = kingPos.r + dr;
+        const c = kingPos.c + dc;
+
+        if (r < 0 || r > 7 || c < 0 || c > 7) continue;
+        if (board[r][c]) continue;
+
+        result.push({ r, c, type: "normal" });
+      }
+    }
+
+    return result;
+  }
+
+  function findMyKing() {
+    const king = turn === "white" ? "wk" : "bk";
+
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        if (board[r][c] === king) {
+          return { r, c };
+        }
+      }
+    }
+
+    return null;
+  }
+
+  function pieceName(piece) {
+    const names = {
+      p: "폰",
+      r: "룩",
+      n: "나이트",
+      b: "비숍",
+      q: "퀸",
+      k: "킹"
+    };
+
+    return names[piece?.[1]] || "알 수 없는 기물";
+  }
+
+  function getKingReturnData(score) {
+    if (score >= 3 && score <= 6) return { mode: "bn", turns: 15, score };
+    if (score >= 7 && score <= 10) return { mode: "q", turns: 5, score };
+    if (score >= 11 && score <= 14) return { mode: "q", turns: 10, score };
+    if (score >= 15 && score <= 18) return { mode: "q", turns: 15, score };
+    if (score >= 19 && score <= 22) return { mode: "qn", turns: 15, score };
+
+    return null;
+  }
+
+  function activateKingReturn() {
+    const values = {
+      q: 9,
+      r: 5,
+      b: 3,
+      n: 3
+    };
+
+    let score = 0;
+
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const piece = board[r][c];
+
+        if (!piece) continue;
+        if (piece[0] !== turn[0]) continue;
+        if (piece[1] === "k") continue;
+        if (piece[1] === "p") continue;
+
+        score += values[piece[1]] || 0;
+        board[r][c] = "";
+      }
+    }
+
+    if (score >= 23) {
+      alert("왕의 귀환 실패! 23점 이상이라 패배");
+
+      if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({ type: "resign" }));
+      }
+
+      return;
+    }
+
+    cardState.kingReturn = getKingReturnData(score);
+
+    if (cardState.kingReturn) {
+      alert(`왕의 귀환 발동! 점수 ${score}, ${cardState.kingReturn.turns}턴 강화`);
+    } else {
+      alert(`왕의 귀환 발동! 점수 ${score}, 강화 없음`);
+    }
+
+    turn = turn === "white" ? "black" : "white";
+  }
+
+  function activateCard() {
+    if (!myCard) {
+      alert("사용할 카드가 없습니다.");
+      return;
+    }
+
+    const usedCard = myCard;
+
+    if (usedCard === "equality") {
+      const result = useCard(usedCard, cardState);
+
+      alert(result.message);
+
+      selected = null;
+      moves = [];
+
+      renderCard();
+      render();
+      return;
+    }
+
+    if (usedCard === "reactionary") {
+      alert("반동분자는 패시브 능력입니다. 내 킹이 잡혔을 때 조건을 만족하면 발동됩니다.");
+      return;
+    }
+
+    if (!localMode && myColor && turn !== myColor && usedCard === "doubleMove") {
+      alert("더블무브는 내 턴에만 사용할 수 있습니다.");
+      return;
+    }
+
+    if (usedCard === "exorcism") {
+      pendingCardUse = usedCard;
+      showExorcismModal();
+      return;
+    }
+
+    if (usedCard === "necro") {
+      if (cardState.necroUsed) {
+        alert("네크로맨서는 이미 사용했습니다.");
+        return;
+      }
+
+      if (cardState.necroCapturedPieces.length === 0) {
+        alert("아직 부활시킬 잡은 기물이 없습니다.");
+        return;
+      }
+
+      pendingCardUse = usedCard;
+      showNecroModal();
+      return;
+    }
+
+    if (usedCard === "spaceTravel") {
+      const result = useCard(usedCard, cardState);
+
+      if (!result.ok) {
+        alert(result.message);
+        return;
+      }
+
+      alert(result.message);
+
+      pendingCardUse = null;
+
+      if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: "card",
+          card: usedCard
+        }));
+      }
+
+      syncCardUpdate();
+
+      renderCard();
+      render();
+      return;
+    }
+
+    if (usedCard === "kingReturn") {
+      pendingCardUse = usedCard;
+
+      activateKingReturn();
+
+      consumeCurrentCard();
+      syncCardUpdate();
+
+      renderCard();
+      render();
+      return;
+    }
+
+    if (usedCard === "doubleMove" || usedCard === "wildHorse") {
+      const result = useCard(usedCard, cardState);
+
+      alert(result.message);
+
+      if (!result.ok) return;
+
+      pendingCardUse = usedCard;
+      consumeCurrentCard();
+
+      renderCard();
+      render();
+      return;
+    }
+
+    const result = useCard(usedCard, cardState);
+    alert(result.message);
+
+    if (result.ok) {
+      pendingCardUse = usedCard;
+      consumeCurrentCard();
+      renderCard();
+      render();
+    }
+  }
+
+  function renderCard() {
+    const area = document.getElementById("cardArea");
+    if (!area) return;
+
+    const spaceTargets = getSpaceTravelPieces();
+
+    if (cardState.activeMode === "equalityPickA") {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">평등국가</div>
+          <div class="cardDesc">캐슬링할 첫 번째 내 기물을 선택하세요.</div>
+        </div>
+      `;
+      return;
+    }
+
+    if (cardState.activeMode === "equalityPickB") {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">평등국가</div>
+          <div class="cardDesc">사이에 빈칸 2칸이 있는 같은 가로줄의 내 기물을 선택하세요.</div>
+        </div>
+      `;
+      return;
+    }
+
+    if (cardState.activeMode === "reactionaryPick") {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">반동분자</div>
+          <div class="cardDesc">왕룩으로 지정할 룩을 선택하세요.</div>
+        </div>
+      `;
+      return;
+    }
+
+    if (cardState.activeMode === "exorcism") {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">퇴마(물리)</div>
+          <div class="cardDesc">능력을 사용할 비숍을 선택하세요.</div>
+        </div>
+      `;
+      return;
+    }
+
+    if (cardState.activeMode === "necroPlace") {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">네크로맨서</div>
+          <div class="cardDesc">킹 주변 빈칸을 선택하세요.</div>
+        </div>
+      `;
+      return;
+    }
+
+    if (cardState.activeMode === "spacePlace") {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">우주여행</div>
+          <div class="cardDesc">이동할 칸을 선택하세요. 상대 기물은 잡을 수 있지만 킹은 못 잡습니다.</div>
+        </div>
+      `;
+      return;
+    }
+
+    if (cardState.reactionaryActive && cardState.reactionaryRook) {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">왕룩 활성화</div>
+          <div class="cardDesc">
+            왕룩 위치: ${squareName(cardState.reactionaryRook.r, cardState.reactionaryRook.c)}<br>
+            위협 누적: ${cardState.reactionaryChecks}/3
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    if (cardState.spaceTravelEnabled && spaceTargets.length > 0) {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">우주여행 준비됨</div>
+          <div class="cardDesc">상대 진영 코너에 도착한 내 기물을 원하는 칸으로 텔레포트합니다.</div>
+          <button class="cardBtn" onclick="Game.activateSpaceTravel()">
+            텔레포트 사용
+          </button>
+        </div>
+      `;
+      return;
+    }
+
+    if (!myCard) {
+      area.innerHTML = "";
+      return;
+    }
+
+    if (myCard === "equality") {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">${getCardName(myCard)}</div>
+          <div class="cardDesc">
+            ${getCardDescription(myCard)}<br>
+            <b>사용 횟수 제한 없음</b>
+          </div>
+          <button class="cardBtn" onclick="Game.activateCard()">
+            평등국가 사용
+          </button>
+        </div>
+      `;
+      return;
+    }
+
+    if (myCard === "reactionary") {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">${getCardName(myCard)}</div>
+          <div class="cardDesc">
+            ${getCardDescription(myCard)}<br>
+            <b>킹이 잡혔을 때 조건부 발동</b>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    area.innerHTML = `
+      <div class="cardBox">
+        <div class="cardTitle">${getCardName(myCard)}</div>
+        <div class="cardDesc">${getCardDescription(myCard)}</div>
+        <button class="cardBtn" onclick="Game.activateCard()">
+          능력 사용
+        </button>
+      </div>
+    `;
+  }
+
+  function escapeHtml(str) {
+    return String(str)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  setTimeout(() => {
+    updateLoginUI();
+    refreshRooms();
+    refreshFriends();
+  }, 500);
+
+  return {
+    startLocal,
+    backMenu,
+    resign,
+    choosePromotion,
+    activateCard,
+    activateSpaceTravel,
+
+    cancelCardSelection,
+    chooseExorcismBishop,
+    chooseReactionaryRook,
+    chooseSpacePiece,
+    chooseNecroPiece,
+
+    loginNickname,
+    loginGoogle,
+    logout,
+
+    createOnlineRoom,
+    refreshRooms,
+    closeJoinModal,
+    confirmJoinRoom,
+    copyInvite,
+
+    addFriend,
+    refreshFriends
+  };
+})();
+
+window.Game = Game;
