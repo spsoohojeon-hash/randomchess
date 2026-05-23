@@ -30,8 +30,8 @@ import {
   serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js";
 
-window.onerror = function(msg) {
-  alert("에러: " + msg);
+window.onerror = function(msg, src, line, col, err) {
+  alert("에러: " + msg + "\nline: " + line);
 };
 
 const firebaseConfig = {
@@ -76,7 +76,6 @@ const Game = (() => {
   let currentUser = null;
   let unsubscribeFriends = null;
   let unsubscribeRequests = null;
-
   let roomList = [];
 
   let moved = {
@@ -121,6 +120,15 @@ const Game = (() => {
     return `${String.fromCharCode(97 + c)}${8 - r}`;
   }
 
+  function escapeHtml(text) {
+    return String(text)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
   function ensureOnlineUI() {
     const menu = document.getElementById("menu");
     if (!menu) return;
@@ -131,7 +139,7 @@ const Game = (() => {
       box.className = "onlineBox";
       box.innerHTML = `
         <h2>계정</h2>
-        <div id="accountStatus">로그인 안 됨</div>
+        <div id="accountStatus" class="modalDesc">로그인 안 됨</div>
         <input id="nicknameInput" placeholder="닉네임">
         <button id="googleLoginBtn" onclick="Game.loginGoogle()">Google 로그인</button>
         <button onclick="Game.loginNickname()">닉네임 로그인</button>
@@ -145,9 +153,9 @@ const Game = (() => {
       box.id = "newLobbyBox";
       box.className = "onlineBox";
       box.innerHTML = `
-        <h2>온라인 방</h2>
+        <h2>온라인 방 만들기</h2>
         <input id="roomNameInput" placeholder="방 이름">
-        <input id="roomPasswordInput" placeholder="비밀번호, 없으면 공개방">
+        <input id="roomPasswordInput" placeholder="비밀번호 선택사항">
         <button onclick="Game.createNamedRoom()">방 만들기</button>
         <button onclick="Game.refreshRooms()">방 목록 새로고침</button>
         <div id="roomList" class="miniList"></div>
@@ -204,6 +212,7 @@ const Game = (() => {
 
     const uid = localStorage.getItem("randomChessGuestUid") || "guest-" + crypto.randomUUID();
     localStorage.setItem("randomChessGuestUid", uid);
+    localStorage.setItem("randomChessGuestName", name);
 
     currentUser = {
       uid,
@@ -213,12 +222,12 @@ const Game = (() => {
       provider: "nickname"
     };
 
-    localStorage.setItem("randomChessGuestName", name);
-
     try {
       await saveUserProfile();
       startFriendListeners();
-    } catch {}
+    } catch (err) {
+      console.log(err);
+    }
 
     renderAccount();
     alert(name + " 로그인됨");
@@ -276,13 +285,17 @@ const Game = (() => {
       const friends = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       window.__randomChessFriends = friends;
       renderFriends(friends, window.__randomChessRequests || []);
-    }, () => {});
+    }, err => {
+      console.log(err);
+    });
 
     unsubscribeRequests = onSnapshot(requestsRef, snap => {
       const requests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
       window.__randomChessRequests = requests;
       renderFriends(window.__randomChessFriends || [], requests);
-    }, () => {});
+    }, err => {
+      console.log(err);
+    });
   }
 
   function renderFriends(friends = [], requests = []) {
@@ -326,6 +339,7 @@ const Game = (() => {
     }
 
     const value = document.getElementById("friendSearchInput")?.value?.trim();
+
     if (!value) {
       alert("친구 닉네임 또는 이메일을 입력해라.");
       return;
@@ -333,11 +347,11 @@ const Game = (() => {
 
     try {
       const usersRef = collection(db, "users");
-
       const q1 = query(usersRef, where("nickname", "==", value));
       const q2 = query(usersRef, where("email", "==", value));
 
       const [s1, s2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+
       const found = [...s1.docs, ...s2.docs]
         .map(d => d.data())
         .find(u => u.uid !== currentUser.uid);
@@ -415,15 +429,6 @@ const Game = (() => {
     alert("초대 링크:\n" + location.origin + `/?room=${encodeURIComponent(roomCode)}`);
   }
 
-  function escapeHtml(text) {
-    return String(text)
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
-  }
-
   onAuthStateChanged(auth, async user => {
     ensureOnlineUI();
 
@@ -479,7 +484,7 @@ const Game = (() => {
   }
 
   function handleServerMessage(data) {
-    if (data.type === "rooms") {
+    if (data.type === "rooms" || data.type === "roomList") {
       roomList = data.rooms || [];
       renderRoomList();
       return;
@@ -487,15 +492,12 @@ const Game = (() => {
 
     if (data.type === "roomCreated") {
       roomCode = data.roomId || data.roomCode || data.id;
-      if (roomCode) {
-        joinOnlineById(roomCode, data.password || "");
-      }
       return;
     }
 
     if (data.type === "waiting") {
       showGame();
-      status("매칭 찾는 중...");
+      status(data.message || "매칭 찾는 중...");
       const boardDiv = document.getElementById("board");
       if (boardDiv) boardDiv.innerHTML = "";
       return;
@@ -634,6 +636,9 @@ const Game = (() => {
     const password = document.getElementById("roomPasswordInput")?.value || "";
     const id = Math.random().toString(36).substring(2, 8).toUpperCase();
 
+    localMode = false;
+    roomCode = id;
+
     connectSocket(() => {
       ws.send(JSON.stringify({
         type: "createRoom",
@@ -642,13 +647,6 @@ const Game = (() => {
         password,
         user: currentUser
       }));
-
-      setTimeout(() => {
-        if (!roomCode) {
-          roomCode = id;
-          joinOnlineById(id, password);
-        }
-      }, 500);
     });
   }
 
@@ -660,15 +658,6 @@ const Game = (() => {
         type: "listRooms"
       }));
     });
-
-    setTimeout(() => {
-      if (roomList.length === 0) {
-        const list = document.getElementById("roomList");
-        if (list) {
-          list.innerHTML = `<div class="modalDesc">서버가 방 목록을 지원하지 않으면 기존 방 코드 입장을 사용해야 함.</div>`;
-        }
-      }
-    }, 800);
   }
 
   function renderRoomList() {
@@ -683,8 +672,11 @@ const Game = (() => {
     list.innerHTML = roomList.map(room => `
       <div class="listItem">
         <b>${escapeHtml(room.name || room.roomName || room.id || room.roomId)}</b>
-        <span>${room.hasPassword ? "🔒" : "공개"}</span>
-        <button onclick="Game.joinRoomFromList('${room.id || room.roomId}', ${room.hasPassword ? "true" : "false"})">입장</button>
+        <div class="modalDesc">
+          ${room.hasPassword || room.locked ? "🔒 비공개방" : "공개방"}
+          / ${room.players || 0}/${room.maxPlayers || 2}
+        </div>
+        <button onclick="Game.joinRoomFromList('${room.id || room.roomId}', ${room.hasPassword || room.locked ? "true" : "false"})">입장</button>
       </div>
     `).join("");
   }
@@ -710,13 +702,6 @@ const Game = (() => {
         password,
         user: currentUser
       }));
-
-      ws.send(JSON.stringify({
-        type: "join",
-        roomId: id,
-        password,
-        user: currentUser
-      }));
     });
   }
 
@@ -724,12 +709,22 @@ const Game = (() => {
     const code = Math.random().toString(36).substring(2, 8).toUpperCase();
     const input = document.getElementById("roomInput");
 
-    if (input) {
-      input.value = code;
-    }
+    if (input) input.value = code;
 
     alert("방 코드: " + code);
-    joinOnline();
+
+    localMode = false;
+    roomCode = code;
+
+    connectSocket(() => {
+      ws.send(JSON.stringify({
+        type: "createRoom",
+        roomId: code,
+        roomName: code,
+        password: "",
+        user: currentUser
+      }));
+    });
   }
 
   function joinOnline() {
@@ -1038,7 +1033,6 @@ const Game = (() => {
 
   function moveGhost(x, y) {
     if (!ghost) return;
-
     ghost.style.left = x + "px";
     ghost.style.top = y + "px";
   }
@@ -1058,8 +1052,7 @@ const Game = (() => {
     if (!localMode && myColor && piece[0] !== myColor[0]) return false;
 
     return true;
-  }
-
+      }
   function clickCell(r, c) {
     if (cardState.activeMode === "equalityPickA") {
       chooseEqualityFirst(r, c);
@@ -1124,7 +1117,12 @@ const Game = (() => {
     const moving = board[from.r][from.c];
     const target = board[to.r][to.c];
 
-    if (cardState.doubleMoveActive && cardState.doubleMoveLeft > 0 && target && target[1] === "k") {
+    if (
+      cardState.doubleMoveActive &&
+      cardState.doubleMoveLeft > 0 &&
+      target &&
+      target[1] === "k"
+    ) {
       alert("더블무브 중에는 킹을 잡을 수 없음");
       selected = null;
       moves = [];
@@ -1145,7 +1143,7 @@ const Game = (() => {
       render();
     } else if (ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
-        type:"move",
+        type: "move",
         from,
         to,
         promoteTo
@@ -1170,8 +1168,9 @@ const Game = (() => {
     document.getElementById("promotionModal")?.classList.add("hidden");
 
     if (promotionResolve) {
+      const resolve = promotionResolve;
       promotionResolve = null;
-      promotionResolve?.(piece);
+      resolve(piece);
     }
   }
 
@@ -1250,26 +1249,240 @@ const Game = (() => {
     }
 
     if (cardState.reactionaryActive && cardState.reactionaryRook) {
-      if (cardState.reactionaryRook.r === from.r && cardState.reactionaryRook.c === from.c) {
+      if (
+        cardState.reactionaryRook.r === from.r &&
+        cardState.reactionaryRook.c === from.c
+      ) {
         cardState.reactionaryRook = { r: to.r, c: to.c };
       }
 
       if (legal?.type === "castleKing") {
         const row = moving[0] === "w" ? 7 : 0;
-        if (cardState.reactionaryRook.r === row && cardState.reactionaryRook.c === 7) {
+
+        if (
+          cardState.reactionaryRook.r === row &&
+          cardState.reactionaryRook.c === 7
+        ) {
           cardState.reactionaryRook = { r: row, c: 5 };
         }
       }
 
       if (legal?.type === "castleQueen") {
         const row = moving[0] === "w" ? 7 : 0;
-        if (cardState.reactionaryRook.r === row && cardState.reactionaryRook.c === 0) {
+
+        if (
+          cardState.reactionaryRook.r === row &&
+          cardState.reactionaryRook.c === 0
+        ) {
           cardState.reactionaryRook = { r: row, c: 3 };
         }
       }
     }
 
     finishMoveTurn();
+  }
+
+  function updateMoved(piece, from) {
+    if (piece === "wk") moved.wk = true;
+    if (piece === "bk") moved.bk = true;
+
+    if (piece === "wr" && from.r === 7 && from.c === 0) moved.wrA = true;
+    if (piece === "wr" && from.r === 7 && from.c === 7) moved.wrH = true;
+    if (piece === "br" && from.r === 0 && from.c === 0) moved.brA = true;
+    if (piece === "br" && from.r === 0 && from.c === 7) moved.brH = true;
+  }
+
+  function getMoves(r, c) {
+    const piece = board[r]?.[c];
+
+    if (!piece) return [];
+
+    const color = piece[0];
+    const type = piece[1];
+    const res = [];
+
+    const add = (nr, nc, kind = "normal") => {
+      if (nr < 0 || nr > 7 || nc < 0 || nc > 7) return;
+
+      if (!board[nr][nc] || board[nr][nc][0] !== color) {
+        res.push({
+          r: nr,
+          c: nc,
+          type: kind
+        });
+      }
+    };
+
+    const slide = dirs => {
+      for (const [dr, dc] of dirs) {
+        let nr = r + dr;
+        let nc = c + dc;
+
+        while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+          if (!board[nr][nc]) {
+            res.push({ r: nr, c: nc, type: "normal" });
+          } else {
+            if (board[nr][nc][0] !== color) {
+              res.push({ r: nr, c: nc, type: "normal" });
+            }
+            break;
+          }
+
+          nr += dr;
+          nc += dc;
+        }
+      }
+    };
+
+    if (type === "p") {
+      const dir = color === "w" ? -1 : 1;
+      const start = color === "w" ? 6 : 1;
+
+      if (!board[r + dir]?.[c]) {
+        add(r + dir, c);
+      }
+
+      if (
+        r === start &&
+        !board[r + dir]?.[c] &&
+        !board[r + dir * 2]?.[c]
+      ) {
+        add(r + dir * 2, c, "doublePawn");
+      }
+
+      for (const dc of [-1, 1]) {
+        const target = board[r + dir]?.[c + dc];
+
+        if (target && target[0] !== color) {
+          add(r + dir, c + dc);
+        }
+
+        if (
+          enPassant &&
+          enPassant.r === r + dir &&
+          enPassant.c === c + dc
+        ) {
+          res.push({
+            r: r + dir,
+            c: c + dc,
+            type: "enPassant"
+          });
+        }
+      }
+    }
+
+    if (type === "n") {
+      if (cardState.wildHorse) {
+        return getWildHorseMoves(r, c, board, color);
+      }
+
+      [
+        [2,1],[1,2],[-1,2],[-2,1],
+        [-2,-1],[-1,-2],[1,-2],[2,-1]
+      ].forEach(([dr, dc]) => add(r + dr, c + dc));
+    }
+
+    if (type === "b") {
+      slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
+    }
+
+    if (type === "r") {
+      slide([[1,0],[-1,0],[0,1],[0,-1]]);
+    }
+
+    if (type === "q") {
+      slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
+    }
+
+    if (type === "k") {
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          if (dr || dc) {
+            add(r + dr, c + dc);
+          }
+        }
+      }
+
+      if (cardState.kingReturn && cardState.kingReturn.turns > 0) {
+        const mode = cardState.kingReturn.mode;
+
+        const addKingReturnMove = (dr, dc) => {
+          const nr = r + dr;
+          const nc = c + dc;
+
+          if (nr < 0 || nr > 7 || nc < 0 || nc > 7) return;
+
+          const target = board[nr][nc];
+
+          if (!target || target[0] !== color) {
+            res.push({
+              r: nr,
+              c: nc,
+              type: "kingReturn"
+            });
+          }
+        };
+
+        if (mode === "bn" || mode === "qn") {
+          [
+            [2,1],[1,2],[-1,2],[-2,1],
+            [-2,-1],[-1,-2],[1,-2],[2,-1]
+          ].forEach(([dr, dc]) => addKingReturnMove(dr, dc));
+        }
+
+        if (mode === "bn") {
+          slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
+        }
+
+        if (mode === "q" || mode === "qn") {
+          slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
+        }
+      }
+
+      if (color === "w" && r === 7 && c === 4 && !moved.wk) {
+        if (
+          !moved.wrH &&
+          board[7][5] === "" &&
+          board[7][6] === "" &&
+          board[7][7] === "wr"
+        ) {
+          add(7, 6, "castleKing");
+        }
+
+        if (
+          !moved.wrA &&
+          board[7][1] === "" &&
+          board[7][2] === "" &&
+          board[7][3] === "" &&
+          board[7][0] === "wr"
+        ) {
+          add(7, 2, "castleQueen");
+        }
+      }
+
+      if (color === "b" && r === 0 && c === 4 && !moved.bk) {
+        if (
+          !moved.brH &&
+          board[0][5] === "" &&
+          board[0][6] === "" &&
+          board[0][7] === "br"
+        ) {
+          add(0, 6, "castleKing");
+        }
+
+        if (
+          !moved.brA &&
+          board[0][1] === "" &&
+          board[0][2] === "" &&
+          board[0][3] === "" &&
+          board[0][0] === "br"
+        ) {
+          add(0, 2, "castleQueen");
+        }
+      }
+    }
+
+    return res;
   }
 
   function getEqualityTargets() {
@@ -1405,6 +1618,85 @@ const Game = (() => {
     board[row][aFinalC] = pieceA;
   }
 
+  function getExorcismBishopOptions() {
+    const result = [];
+    const color = turn[0];
+
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        if (board[r][c] === color + "b") {
+          result.push({ r, c });
+        }
+      }
+    }
+
+    return result;
+  }
+
+  function showExorcismModal() {
+    const modal = document.getElementById("exorcismModal");
+    const list = document.getElementById("exorcismList");
+
+    const bishops = getExorcismBishopOptions();
+
+    if (bishops.length === 0) {
+      alert("사용할 수 있는 비숍이 없습니다.");
+      cancelCardSelection();
+      return;
+    }
+
+    if (!modal || !list) {
+      cardState.activeMode = "exorcism";
+      pendingCardUse = myCard;
+      selected = null;
+      moves = [];
+      render();
+      return;
+    }
+
+    list.innerHTML = "";
+
+    bishops.forEach(pos => {
+      const btn = document.createElement("button");
+      btn.className = "selectBtn";
+      btn.textContent = `비숍 ${squareName(pos.r, pos.c)}`;
+      btn.onclick = () => chooseExorcismBishop(pos.r, pos.c);
+      list.appendChild(btn);
+    });
+
+    cardState.activeMode = "exorcism";
+    pendingCardUse = myCard;
+
+    selected = null;
+    moves = [];
+
+    modal.classList.remove("hidden");
+    render();
+  }
+
+  function chooseExorcismBishop(r, c) {
+    const piece = board[r]?.[c];
+
+    if (!piece || piece[0] !== turn[0] || piece[1] !== "b") {
+      alert("퇴마(물리)는 내 비숍만 사용할 수 있습니다.");
+      return;
+    }
+
+    closeAllCardModals();
+
+    doExorcism(r, c);
+
+    cardState.activeMode = null;
+    selected = null;
+    moves = [];
+
+    consumeCurrentCard();
+    syncCardUpdate();
+
+    renderCard();
+    render();
+  }
+
   function doExorcism(r, c) {
     const bishop = board[r][c];
     if (!bishop) return;
@@ -1432,159 +1724,633 @@ const Game = (() => {
     turn = turn === "white" ? "black" : "white";
   }
 
-  function updateMoved(piece, from) {
-    if (piece === "wk") moved.wk = true;
-    if (piece === "bk") moved.bk = true;
+  function getReactionaryOwnerColor() {
+    if (!localMode && myColor) {
+      return myColor;
+    }
 
-    if (piece === "wr" && from.r === 7 && from.c === 0) moved.wrA = true;
-    if (piece === "wr" && from.r === 7 && from.c === 7) moved.wrH = true;
-    if (piece === "br" && from.r === 0 && from.c === 0) moved.brA = true;
-    if (piece === "br" && from.r === 0 && from.c === 7) moved.brH = true;
+    return turn;
   }
 
-  function getMoves(r, c) {
+  function getReactionaryRookOptions() {
+    const result = [];
+    const owner = getReactionaryOwnerColor();
+
+    if (owner === "white") {
+      if (moved.wk || moved.wrA || moved.wrH) {
+        return result;
+      }
+
+      if (board[7]?.[0] === "wr") {
+        result.push({ r: 7, c: 0 });
+      }
+
+      if (board[7]?.[7] === "wr") {
+        result.push({ r: 7, c: 7 });
+      }
+    }
+
+    if (owner === "black") {
+      if (moved.bk || moved.brA || moved.brH) {
+        return result;
+      }
+
+      if (board[0]?.[0] === "br") {
+        result.push({ r: 0, c: 0 });
+      }
+
+      if (board[0]?.[7] === "br") {
+        result.push({ r: 0, c: 7 });
+      }
+    }
+
+    return result;
+  }
+
+  function chooseReactionaryRook(r, c) {
+    const owner = getReactionaryOwnerColor();
     const piece = board[r]?.[c];
 
-    if (!piece) return [];
+    if (!piece || piece[0] !== owner[0] || piece[1] !== "r") {
+      alert("내 룩만 왕룩으로 선택 가능합니다.");
+      return;
+    }
 
-    const color = piece[0];
-    const type = piece[1];
-    const res = [];
+    const options = getReactionaryRookOptions();
+    const ok = options.some(pos => pos.r === r && pos.c === c);
 
-    const add = (nr, nc, kind = "normal") => {
-      if (nr < 0 || nr > 7 || nc < 0 || nc > 7) return;
+    if (!ok) {
+      alert("캐슬링 둘 다 하지 않은 상태의 시작 위치 룩만 선택 가능합니다.");
+      return;
+    }
 
-      if (!board[nr][nc] || board[nr][nc][0] !== color) {
-        res.push({
-          r: nr,
-          c: nc,
-          type: kind
+    closeAllCardModals();
+
+    cardState.reactionaryActive = true;
+    cardState.reactionaryRook = { r, c };
+    cardState.reactionaryChecks = 0;
+    cardState.activeMode = null;
+    cardState.reactionaryOptions = [];
+
+    selected = null;
+    moves = [];
+
+    syncCardUpdate();
+
+    alert("왕룩 지정 완료. 이 룩이 잡히면 패배합니다.");
+
+    renderCard();
+    render();
+  }
+
+  function getSpaceTravelPieces() {
+    if (!cardState.spaceTravelEnabled) return [];
+
+    if (!localMode && myColor && turn !== myColor) {
+      return [];
+    }
+
+    const color = turn[0];
+    const result = [];
+
+    const corners = color === "w"
+      ? [{ r: 0, c: 0 }, { r: 0, c: 7 }]
+      : [{ r: 7, c: 0 }, { r: 7, c: 7 }];
+
+    for (const pos of corners) {
+      const piece = board[pos.r]?.[pos.c];
+
+      if (piece && piece[0] === color) {
+        result.push({
+          r: pos.r,
+          c: pos.c,
+          type: "normal"
         });
       }
-    };
+    }
 
-    const slide = dirs => {
-      for (const [dr, dc] of dirs) {
-        let nr = r + dr;
-        let nc = c + dc;
+    return result;
+  }
 
-        while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
-          if (!board[nr][nc]) {
-            res.push({ r: nr, c: nc, type: "normal" });
-          } else {
-            if (board[nr][nc][0] !== color) {
-              res.push({ r: nr, c: nc, type: "normal" });
-            }
-            break;
-          }
+  function getSpaceDestinationMoves(color) {
+    const result = [];
 
-          nr += dr;
-          nc += dc;
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const target = board[r][c];
+
+        if (!target) {
+          result.push({
+            r,
+            c,
+            type: "normal"
+          });
+          continue;
         }
-      }
-    };
 
-    if (type === "p") {
-      const dir = color === "w" ? -1 : 1;
-      const start = color === "w" ? 6 : 1;
-
-      if (!board[r + dir]?.[c]) add(r + dir, c);
-
-      if (r === start && !board[r + dir]?.[c] && !board[r + dir * 2]?.[c]) {
-        add(r + dir * 2, c, "doublePawn");
-      }
-
-      for (const dc of [-1, 1]) {
-        const target = board[r + dir]?.[c + dc];
-
-        if (target && target[0] !== color) add(r + dir, c + dc);
-
-        if (enPassant && enPassant.r === r + dir && enPassant.c === c + dc) {
-          res.push({
-            r: r + dir,
-            c: c + dc,
-            type: "enPassant"
+        if (target[0] !== color && target[1] !== "k") {
+          result.push({
+            r,
+            c,
+            type: "normal"
           });
         }
       }
     }
 
-    if (type === "n") {
-      if (cardState.wildHorse) {
-        return getWildHorseMoves(r, c, board, color);
-      }
+    return result;
+  }
 
-      [
-        [2,1],[1,2],[-1,2],[-2,1],
-        [-2,-1],[-1,-2],[1,-2],[2,-1]
-      ].forEach(([dr, dc]) => add(r + dr, c + dc));
+  function showSpaceModal() {
+    const modal = document.getElementById("spaceModal");
+    const list = document.getElementById("spaceList");
+
+    const targets = getSpaceTravelPieces();
+
+    if (targets.length === 0) {
+      alert("텔레포트 가능한 기물이 없습니다.");
+      cancelCardSelection();
+      return;
     }
 
-    if (type === "b") slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
-    if (type === "r") slide([[1,0],[-1,0],[0,1],[0,-1]]);
-    if (type === "q") slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
+    if (!modal || !list) {
+      cardState.activeMode = "spacePick";
+      cardState.selectedSquares = [];
+      selected = null;
+      moves = targets;
+      renderCard();
+      render();
+      return;
+    }
 
-    if (type === "k") {
-      for (let dr = -1; dr <= 1; dr++) {
-        for (let dc = -1; dc <= 1; dc++) {
-          if (dr || dc) add(r + dr, c + dc);
-        }
-      }
+    list.innerHTML = "";
 
-      if (cardState.kingReturn && cardState.kingReturn.turns > 0) {
-        const mode = cardState.kingReturn.mode;
+    targets.forEach(pos => {
+      const piece = board[pos.r][pos.c];
 
-        const addKingReturnMove = (dr, dc) => {
-          const nr = r + dr;
-          const nc = c + dc;
+      const btn = document.createElement("button");
+      btn.className = "selectBtn";
+      btn.textContent = `${pieceName(piece)} ${squareName(pos.r, pos.c)}`;
+      btn.onclick = () => chooseSpacePiece(pos.r, pos.c);
+      list.appendChild(btn);
+    });
 
-          if (nr < 0 || nr > 7 || nc < 0 || nc > 7) return;
+    cardState.activeMode = "spacePick";
+    cardState.selectedSquares = [];
 
-          const target = board[nr][nc];
+    selected = null;
+    moves = targets;
 
-          if (!target || target[0] !== color) {
-            res.push({ r: nr, c: nc, type: "kingReturn" });
-          }
-        };
+    modal.classList.remove("hidden");
+    render();
+  }
 
-        if (mode === "bn" || mode === "qn") {
-          [
-            [2,1],[1,2],[-1,2],[-2,1],
-            [-2,-1],[-1,-2],[1,-2],[2,-1]
-          ].forEach(([dr, dc]) => addKingReturnMove(dr, dc));
-        }
+  function chooseSpacePiece(r, c) {
+    const piece = board[r]?.[c];
 
-        if (mode === "bn") {
-          slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
-        }
+    if (!piece || piece[0] !== turn[0]) {
+      alert("텔레포트 가능한 내 기물만 선택 가능합니다.");
+      return;
+    }
 
-        if (mode === "q" || mode === "qn") {
-          slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
-        }
-      }
+    const targets = getSpaceTravelPieces();
+    const ok = targets.some(pos => pos.r === r && pos.c === c);
 
-      if (color === "w" && r === 7 && c === 4 && !moved.wk) {
-        if (!moved.wrH && board[7][5] === "" && board[7][6] === "" && board[7][7] === "wr") {
-          add(7, 6, "castleKing");
-        }
+    if (!ok) {
+      alert("상대 진영 코너에 도착한 기물만 선택 가능합니다.");
+      return;
+    }
 
-        if (!moved.wrA && board[7][1] === "" && board[7][2] === "" && board[7][3] === "" && board[7][0] === "wr") {
-          add(7, 2, "castleQueen");
-        }
-      }
+    closeAllCardModals();
 
-      if (color === "b" && r === 0 && c === 4 && !moved.bk) {
-        if (!moved.brH && board[0][5] === "" && board[0][6] === "" && board[0][7] === "br") {
-          add(0, 6, "castleKing");
-        }
+    cardState.selectedSquares = [{ r, c }];
+    cardState.activeMode = "spacePlace";
 
-        if (!moved.brA && board[0][1] === "" && board[0][2] === "" && board[0][3] === "" && board[0][0] === "br") {
-          add(0, 2, "castleQueen");
+    selected = { r, c };
+    moves = getSpaceDestinationMoves(piece[0]);
+
+    alert("이동할 칸을 선택하세요. 상대 기물은 잡을 수 있지만 킹은 못 잡습니다.");
+    renderCard();
+    render();
+  }
+
+  function placeSpaceTravel(r, c) {
+    const from = cardState.selectedSquares[0];
+
+    if (!from) {
+      alert("텔레포트할 기물이 선택되지 않았습니다.");
+      cardState.activeMode = null;
+      cardState.selectedSquares = [];
+      selected = null;
+      moves = [];
+      render();
+      return;
+    }
+
+    const piece = board[from.r]?.[from.c];
+    const target = board[r]?.[c];
+
+    if (!piece) {
+      alert("텔레포트할 기물이 없음");
+      cardState.activeMode = null;
+      cardState.selectedSquares = [];
+      selected = null;
+      moves = [];
+      render();
+      return;
+    }
+
+    if (target && target[0] === piece[0]) {
+      alert("내 기물이 있는 칸으로는 텔레포트할 수 없습니다.");
+      return;
+    }
+
+    if (target && target[1] === "k") {
+      alert("우주여행으로 킹은 잡을 수 없습니다.");
+      return;
+    }
+
+    if (target && target[0] !== piece[0] && target[1] !== "k") {
+      cardState.necroCapturedPieces.push(target);
+    }
+
+    board[r][c] = piece;
+    board[from.r][from.c] = "";
+
+    cardState.selectedSquares = [];
+    cardState.activeMode = null;
+
+    selected = null;
+    moves = [];
+
+    turn = turn === "white" ? "black" : "white";
+
+    syncCardUpdate();
+    renderCard();
+    render();
+  }
+
+  function showNecroModal() {
+    const modal = document.getElementById("necroModal");
+    const list = document.getElementById("necroList");
+
+    if (cardState.necroCapturedPieces.length === 0) {
+      alert("부활시킬 수 있는 잡은 기물이 없습니다.");
+      cancelCardSelection();
+      return;
+    }
+
+    if (!modal || !list) {
+      cardState.activeMode = "necroPick";
+      pendingCardUse = myCard;
+      selected = null;
+      moves = [];
+      render();
+      return;
+    }
+
+    list.innerHTML = "";
+
+    cardState.necroCapturedPieces.forEach((piece, index) => {
+      const btn = document.createElement("button");
+      btn.className = "selectBtn";
+      btn.textContent = `${pieceName(piece)} (${piece[0] === "w" ? "백" : "흑"})`;
+      btn.onclick = () => chooseNecroPiece(index);
+      list.appendChild(btn);
+    });
+
+    cardState.activeMode = "necroPick";
+    pendingCardUse = myCard;
+
+    selected = null;
+    moves = [];
+
+    modal.classList.remove("hidden");
+    render();
+  }
+
+  function chooseNecroPiece(index) {
+    const piece = cardState.necroCapturedPieces[index];
+
+    if (!piece) {
+      alert("선택한 기물이 없습니다.");
+      return;
+    }
+
+    cardState.necroSelectedPiece = piece;
+    cardState.activeMode = "necroPlace";
+
+    moves = getNecroPlaceMoves();
+    selected = null;
+
+    closeAllCardModals();
+
+    if (moves.length === 0) {
+      alert("킹 주변에 부활 가능한 빈칸이 없습니다.");
+      cardState.necroSelectedPiece = null;
+      cardState.activeMode = null;
+      moves = [];
+      render();
+      return;
+    }
+
+    alert("킹 주변 빈칸을 선택하세요.");
+    render();
+  }
+
+  function placeNecro(r, c) {
+    if (board[r][c]) {
+      alert("빈칸만 가능");
+      return;
+    }
+
+    const kingPos = findMyKing();
+
+    if (!kingPos) {
+      alert("킹 없음");
+      return;
+    }
+
+    const near =
+      Math.abs(kingPos.r - r) <= 1 &&
+      Math.abs(kingPos.c - c) <= 1;
+
+    if (!near) {
+      alert("킹 주변만 가능");
+      return;
+    }
+
+    const color = turn[0];
+    const type = cardState.necroSelectedPiece[1];
+
+    board[r][c] = color + type;
+
+    cardState.necroUsed = true;
+
+    const usedIndex = cardState.necroCapturedPieces.findIndex(
+      p => p === cardState.necroSelectedPiece
+    );
+
+    if (usedIndex !== -1) {
+      cardState.necroCapturedPieces.splice(usedIndex, 1);
+    }
+
+    cardState.necroSelectedPiece = null;
+    cardState.activeMode = null;
+
+    selected = null;
+    moves = [];
+
+    turn = turn === "white" ? "black" : "white";
+
+    consumeCurrentCard();
+    syncCardUpdate();
+
+    renderCard();
+    render();
+  }
+
+  function pieceName(piece) {
+    const names = {
+      p: "폰",
+      r: "룩",
+      n: "나이트",
+      b: "비숍",
+      q: "퀸",
+      k: "킹"
+    };
+
+    return names[piece?.[1]] || "알 수 없는 기물";
+  }
+
+  function findMyKing() {
+    const king = turn === "white" ? "wk" : "bk";
+
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        if (board[r][c] === king) {
+          return { r, c };
         }
       }
     }
 
-    return res;
+    return null;
+  }
+
+  function getNecroPlaceMoves() {
+    const kingPos = findMyKing();
+    if (!kingPos) return [];
+
+    const result = [];
+
+    for (let dr = -1; dr <= 1; dr++) {
+      for (let dc = -1; dc <= 1; dc++) {
+        if (dr === 0 && dc === 0) continue;
+
+        const r = kingPos.r + dr;
+        const c = kingPos.c + dc;
+
+        if (r < 0 || r > 7 || c < 0 || c > 7) continue;
+        if (board[r][c]) continue;
+
+        result.push({ r, c, type: "normal" });
+      }
+    }
+
+    return result;
+  }
+
+  function getKingReturnData(score) {
+    if (score >= 3 && score <= 6) {
+      return { mode: "bn", turns: 15, score };
+    }
+
+    if (score >= 7 && score <= 10) {
+      return { mode: "q", turns: 5, score };
+    }
+
+    if (score >= 11 && score <= 14) {
+      return { mode: "q", turns: 10, score };
+    }
+
+    if (score >= 15 && score <= 18) {
+      return { mode: "q", turns: 15, score };
+    }
+
+    if (score >= 19 && score <= 22) {
+      return { mode: "qn", turns: 15, score };
+    }
+
+    return null;
+  }
+
+  function activateKingReturn() {
+    const values = {
+      q: 9,
+      r: 5,
+      b: 3,
+      n: 3
+    };
+
+    let score = 0;
+
+    for (let r = 0; r < 8; r++) {
+      for (let c = 0; c < 8; c++) {
+        const piece = board[r][c];
+
+        if (!piece) continue;
+        if (piece[0] !== turn[0]) continue;
+        if (piece[1] === "k") continue;
+        if (piece[1] === "p") continue;
+
+        score += values[piece[1]] || 0;
+        board[r][c] = "";
+      }
+    }
+
+    if (score >= 23) {
+      alert("왕의 귀환 실패! 23점 이상이라 패배");
+
+      if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: "resign"
+        }));
+      }
+
+      return;
+    }
+
+    cardState.kingReturn = getKingReturnData(score);
+
+    if (cardState.kingReturn) {
+      alert(`왕의 귀환 발동! 점수 ${score}, ${cardState.kingReturn.turns}턴 강화`);
+    } else {
+      alert(`왕의 귀환 발동! 점수 ${score}, 강화 없음`);
+    }
+
+    turn = turn === "white" ? "black" : "white";
+  }
+
+  function activateCard() {
+    if (!myCard) {
+      alert("사용할 카드가 없습니다.");
+      return;
+    }
+
+    const usedCard = myCard;
+
+    if (usedCard === "equality") {
+      const result = useCard(usedCard, cardState);
+
+      alert(result.message);
+
+      selected = null;
+      moves = [];
+
+      renderCard();
+      render();
+      return;
+    }
+
+    if (usedCard === "reactionary") {
+      alert("반동분자는 패시브 능력입니다. 내 킹이 잡혔을 때 조건을 만족하면 발동됩니다.");
+      return;
+    }
+
+    if (!localMode && myColor && turn !== myColor && usedCard === "doubleMove") {
+      alert("더블무브는 내 턴에만 사용할 수 있습니다.");
+      return;
+    }
+
+    if (usedCard === "exorcism") {
+      pendingCardUse = usedCard;
+      showExorcismModal();
+      return;
+    }
+
+    if (usedCard === "necro") {
+      if (cardState.necroUsed) {
+        alert("네크로맨서는 이미 사용했습니다.");
+        return;
+      }
+
+      if (cardState.necroCapturedPieces.length === 0) {
+        alert("아직 부활시킬 잡은 기물이 없습니다.");
+        return;
+      }
+
+      pendingCardUse = usedCard;
+      showNecroModal();
+      return;
+    }
+
+    if (usedCard === "spaceTravel") {
+      const result = useCard(usedCard, cardState);
+
+      if (!result.ok) {
+        alert(result.message);
+        return;
+      }
+
+      alert(result.message);
+
+      pendingCardUse = null;
+
+      if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+        ws.send(JSON.stringify({
+          type: "card",
+          card: usedCard
+        }));
+      }
+
+      syncCardUpdate();
+
+      renderCard();
+      render();
+      return;
+    }
+
+    if (usedCard === "kingReturn") {
+      pendingCardUse = usedCard;
+
+      activateKingReturn();
+
+      consumeCurrentCard();
+      syncCardUpdate();
+
+      renderCard();
+      render();
+      return;
+    }
+
+    if (usedCard === "doubleMove" || usedCard === "wildHorse") {
+      const result = useCard(usedCard, cardState);
+
+      alert(result.message);
+
+      if (!result.ok) return;
+
+      pendingCardUse = usedCard;
+      consumeCurrentCard();
+
+      renderCard();
+      render();
+      return;
+    }
+
+    const result = useCard(usedCard, cardState);
+    alert(result.message);
+
+    if (result.ok) {
+      pendingCardUse = usedCard;
+      consumeCurrentCard();
+      renderCard();
+      render();
+    }
+  }
+
+  function activateSpaceTravel() {
+    showSpaceModal();
   }
 
   function renderCard() {
@@ -1654,3 +2420,126 @@ const Game = (() => {
     }
 
     if (cardState.reactionaryActive && cardState.reactionaryRook) {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">왕룩 활성화</div>
+          <div class="cardDesc">
+            왕룩 위치: ${squareName(cardState.reactionaryRook.r, cardState.reactionaryRook.c)}<br>
+            위협 누적: ${cardState.reactionaryChecks}/3
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    if (cardState.spaceTravelEnabled && spaceTargets.length > 0) {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">우주여행 준비됨</div>
+          <div class="cardDesc">상대 진영 코너에 도착한 내 기물을 원하는 칸으로 텔레포트합니다.</div>
+          <button class="cardBtn" onclick="Game.activateSpaceTravel()">
+            텔레포트 사용
+          </button>
+        </div>
+      `;
+      return;
+    }
+
+    if (!myCard) {
+      area.innerHTML = "";
+      return;
+    }
+
+    if (myCard === "equality") {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">${getCardName(myCard)}</div>
+          <div class="cardDesc">
+            ${getCardDescription(myCard)}<br>
+            <b>사용 횟수 제한 없음</b>
+          </div>
+          <button class="cardBtn" onclick="Game.activateCard()">
+            평등국가 사용
+          </button>
+        </div>
+      `;
+      return;
+    }
+
+    if (myCard === "reactionary") {
+      area.innerHTML = `
+        <div class="cardBox">
+          <div class="cardTitle">${getCardName(myCard)}</div>
+          <div class="cardDesc">
+            ${getCardDescription(myCard)}<br>
+            <b>킹이 잡혔을 때 조건부 발동</b>
+          </div>
+        </div>
+      `;
+      return;
+    }
+
+    area.innerHTML = `
+      <div class="cardBox">
+        <div class="cardTitle">${getCardName(myCard)}</div>
+        <div class="cardDesc">${getCardDescription(myCard)}</div>
+        <button class="cardBtn" onclick="Game.activateCard()">
+          능력 사용
+        </button>
+      </div>
+    `;
+  }
+
+  window.addEventListener("load", () => {
+    ensureOnlineUI();
+    renderAccount();
+
+    const savedName = localStorage.getItem("randomChessGuestName");
+    const nick = document.getElementById("nicknameInput");
+
+    if (savedName && nick) {
+      nick.value = savedName;
+    }
+
+    const params = new URLSearchParams(location.search);
+    const room = params.get("room");
+
+    if (room) {
+      const input = document.getElementById("roomInput");
+
+      if (input) {
+        input.value = room;
+      }
+    }
+  });
+
+  return {
+    startLocal,
+    makeRoom,
+    joinOnline,
+    createNamedRoom,
+    refreshRooms,
+    joinRoomFromList,
+    backMenu,
+    resign,
+    choosePromotion,
+    activateCard,
+    activateSpaceTravel,
+
+    loginGoogle,
+    logout,
+    loginNickname,
+    addFriend,
+    acceptFriend,
+    rejectFriend,
+    inviteFriend,
+
+    cancelCardSelection,
+    chooseExorcismBishop,
+    chooseReactionaryRook,
+    chooseSpacePiece,
+    chooseNecroPiece
+  };
+})();
+
+window.Game = Game;
