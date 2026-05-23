@@ -6,40 +6,52 @@ import {
   getCardDescription
 } from "./cards.js";
 
-import { firebaseConfig } from "./firebase-config.js";
-
 import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
 import {
   getAuth,
   GoogleAuthProvider,
-  signInWithPopup,
   signInWithRedirect,
   getRedirectResult,
   signOut,
   onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-auth.js";
-
 import {
   getFirestore,
   doc,
   setDoc,
   getDoc,
+  deleteDoc,
   collection,
   query,
   where,
   getDocs,
-  serverTimestamp,
-  addDoc
+  addDoc,
+  onSnapshot,
+  serverTimestamp
 } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js";
 
 window.onerror = function(msg) {
   alert("에러: " + msg);
 };
 
+const firebaseConfig = {
+  apiKey: "AIzaSyCLHcT1IPTW_60G2eR1gWx5Ft78gR0_UAc",
+  authDomain: "randomechess-ab59f.firebaseapp.com",
+  projectId: "randomechess-ab59f",
+  storageBucket: "randomechess-ab59f.firebasestorage.app",
+  messagingSenderId: "140048881457",
+  appId: "1:140048881457:web:4526303c95476bfed98210",
+  measurementId: "G-8HVR0F6JEN"
+};
+
 const firebaseApp = initializeApp(firebaseConfig);
 const auth = getAuth(firebaseApp);
 const db = getFirestore(firebaseApp);
 const googleProvider = new GoogleAuthProvider();
+
+getRedirectResult(auth).catch(err => {
+  alert("구글 로그인 처리 실패: " + err.code + "\n" + err.message);
+});
 
 const Game = (() => {
   const SERVER = "wss://randomchess.onrender.com";
@@ -56,18 +68,21 @@ const Game = (() => {
   let touchFrom = null;
   let ghost = null;
   let promotionResolve = null;
-  let pendingJoinRoom = null;
+
+  let myCard = null;
+  let cardState = createCardState();
+  let pendingCardUse = null;
 
   let currentUser = null;
+  let unsubscribeFriends = null;
+  let unsubscribeRequests = null;
+
+  let roomList = [];
 
   let moved = {
     wk:false, wrA:false, wrH:false,
     bk:false, brA:false, brH:false
   };
-
-  let myCard = null;
-  let cardState = createCardState();
-  let pendingCardUse = null;
 
   let equalityUses = {
     white: 0,
@@ -102,19 +117,626 @@ const Game = (() => {
     ];
   }
 
-  function getDisplayName() {
-    if (currentUser?.displayName) return currentUser.displayName;
-    if (currentUser?.email) return currentUser.email.split("@")[0];
-    return localStorage.getItem("randomchess_nick") || "guest";
-  }
-
-  function getUid() {
-    if (currentUser?.uid) return currentUser.uid;
-    return localStorage.getItem("randomchess_uid") || "";
-  }
-
   function squareName(r, c) {
     return `${String.fromCharCode(97 + c)}${8 - r}`;
+  }
+
+  function ensureOnlineUI() {
+    const menu = document.getElementById("menu");
+    if (!menu) return;
+
+    if (!document.getElementById("accountBox")) {
+      const box = document.createElement("div");
+      box.id = "accountBox";
+      box.className = "onlineBox";
+      box.innerHTML = `
+        <h2>계정</h2>
+        <div id="accountStatus">로그인 안 됨</div>
+        <input id="nicknameInput" placeholder="닉네임">
+        <button id="googleLoginBtn" onclick="Game.loginGoogle()">Google 로그인</button>
+        <button onclick="Game.loginNickname()">닉네임 로그인</button>
+        <button id="logoutBtn" class="hidden" onclick="Game.logout()">로그아웃</button>
+      `;
+      menu.appendChild(box);
+    }
+
+    if (!document.getElementById("newLobbyBox")) {
+      const box = document.createElement("div");
+      box.id = "newLobbyBox";
+      box.className = "onlineBox";
+      box.innerHTML = `
+        <h2>온라인 방</h2>
+        <input id="roomNameInput" placeholder="방 이름">
+        <input id="roomPasswordInput" placeholder="비밀번호, 없으면 공개방">
+        <button onclick="Game.createNamedRoom()">방 만들기</button>
+        <button onclick="Game.refreshRooms()">방 목록 새로고침</button>
+        <div id="roomList" class="miniList"></div>
+      `;
+      menu.appendChild(box);
+    }
+
+    if (!document.getElementById("friendBox")) {
+      const box = document.createElement("div");
+      box.id = "friendBox";
+      box.className = "onlineBox";
+      box.innerHTML = `
+        <h2>친구</h2>
+        <input id="friendSearchInput" placeholder="친구 닉네임 또는 이메일">
+        <button onclick="Game.addFriend()">친구 추가</button>
+        <div class="modalDesc">친구 요청</div>
+        <div id="friendRequestList" class="miniList"></div>
+        <div class="modalDesc">친구 목록</div>
+        <div id="friendList" class="miniList"></div>
+      `;
+      menu.appendChild(box);
+    }
+  }
+
+  async function loginGoogle() {
+    try {
+      await signInWithRedirect(auth, googleProvider);
+    } catch (err) {
+      alert("구글 로그인 실패: " + err.code + "\n" + err.message);
+    }
+  }
+
+  async function logout() {
+    try {
+      await signOut(auth);
+      currentUser = null;
+      stopFriendListeners();
+      renderAccount();
+      renderFriends([], []);
+      alert("로그아웃됨");
+    } catch (err) {
+      alert("로그아웃 실패: " + err.code + "\n" + err.message);
+    }
+  }
+
+  async function loginNickname() {
+    const input = document.getElementById("nicknameInput");
+    const name = input?.value?.trim();
+
+    if (!name) {
+      alert("닉네임을 입력해라.");
+      return;
+    }
+
+    const uid = localStorage.getItem("randomChessGuestUid") || "guest-" + crypto.randomUUID();
+    localStorage.setItem("randomChessGuestUid", uid);
+
+    currentUser = {
+      uid,
+      name,
+      email: "",
+      photoURL: "",
+      provider: "nickname"
+    };
+
+    localStorage.setItem("randomChessGuestName", name);
+
+    try {
+      await saveUserProfile();
+      startFriendListeners();
+    } catch {}
+
+    renderAccount();
+    alert(name + " 로그인됨");
+  }
+
+  async function saveUserProfile() {
+    if (!currentUser) return;
+
+    await setDoc(doc(db, "users", currentUser.uid), {
+      uid: currentUser.uid,
+      name: currentUser.name,
+      nickname: currentUser.name,
+      email: currentUser.email || "",
+      provider: currentUser.provider,
+      photoURL: currentUser.photoURL || "",
+      updatedAt: serverTimestamp()
+    }, { merge: true });
+  }
+
+  function renderAccount() {
+    ensureOnlineUI();
+
+    const accountStatus = document.getElementById("accountStatus");
+    const googleBtn = document.getElementById("googleLoginBtn");
+    const logoutBtn = document.getElementById("logoutBtn");
+    const nicknameInput = document.getElementById("nicknameInput");
+
+    if (accountStatus) {
+      accountStatus.textContent = currentUser
+        ? `${currentUser.name} 로그인됨`
+        : "로그인 안 됨";
+    }
+
+    if (googleBtn) googleBtn.classList.toggle("hidden", !!currentUser);
+    if (logoutBtn) logoutBtn.classList.toggle("hidden", !currentUser);
+    if (nicknameInput && currentUser) nicknameInput.value = currentUser.name;
+  }
+
+  function stopFriendListeners() {
+    if (unsubscribeFriends) unsubscribeFriends();
+    if (unsubscribeRequests) unsubscribeRequests();
+    unsubscribeFriends = null;
+    unsubscribeRequests = null;
+  }
+
+  function startFriendListeners() {
+    stopFriendListeners();
+
+    if (!currentUser) return;
+
+    const friendsRef = collection(db, "users", currentUser.uid, "friends");
+    const requestsRef = collection(db, "users", currentUser.uid, "friendRequests");
+
+    unsubscribeFriends = onSnapshot(friendsRef, snap => {
+      const friends = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      window.__randomChessFriends = friends;
+      renderFriends(friends, window.__randomChessRequests || []);
+    }, () => {});
+
+    unsubscribeRequests = onSnapshot(requestsRef, snap => {
+      const requests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
+      window.__randomChessRequests = requests;
+      renderFriends(window.__randomChessFriends || [], requests);
+    }, () => {});
+  }
+
+  function renderFriends(friends = [], requests = []) {
+    ensureOnlineUI();
+
+    const friendList = document.getElementById("friendList");
+    const requestList = document.getElementById("friendRequestList");
+
+    if (requestList) {
+      if (requests.length === 0) {
+        requestList.innerHTML = `<div class="modalDesc">받은 요청 없음</div>`;
+      } else {
+        requestList.innerHTML = requests.map(req => `
+          <div class="listItem">
+            <b>${escapeHtml(req.fromName || "알 수 없음")}</b>
+            <button onclick="Game.acceptFriend('${req.id}')">수락</button>
+            <button onclick="Game.rejectFriend('${req.id}')">거절</button>
+          </div>
+        `).join("");
+      }
+    }
+
+    if (friendList) {
+      if (friends.length === 0) {
+        friendList.innerHTML = `<div class="modalDesc">친구 없음</div>`;
+      } else {
+        friendList.innerHTML = friends.map(fr => `
+          <div class="listItem">
+            <b>${escapeHtml(fr.name || "친구")}</b>
+            <button onclick="Game.inviteFriend('${fr.uid}')">초대</button>
+          </div>
+        `).join("");
+      }
+    }
+  }
+
+  async function addFriend() {
+    if (!currentUser) {
+      alert("먼저 로그인해라.");
+      return;
+    }
+
+    const value = document.getElementById("friendSearchInput")?.value?.trim();
+    if (!value) {
+      alert("친구 닉네임 또는 이메일을 입력해라.");
+      return;
+    }
+
+    try {
+      const usersRef = collection(db, "users");
+
+      const q1 = query(usersRef, where("nickname", "==", value));
+      const q2 = query(usersRef, where("email", "==", value));
+
+      const [s1, s2] = await Promise.all([getDocs(q1), getDocs(q2)]);
+      const found = [...s1.docs, ...s2.docs]
+        .map(d => d.data())
+        .find(u => u.uid !== currentUser.uid);
+
+      if (!found) {
+        alert("해당 유저를 못 찾음. 상대가 먼저 한 번 로그인해야 검색됨.");
+        return;
+      }
+
+      await addDoc(collection(db, "users", found.uid, "friendRequests"), {
+        fromUid: currentUser.uid,
+        fromName: currentUser.name,
+        fromEmail: currentUser.email || "",
+        createdAt: serverTimestamp()
+      });
+
+      alert("친구 요청 보냄");
+    } catch (err) {
+      alert("친구 추가 실패: " + err.message);
+    }
+  }
+
+  async function acceptFriend(requestId) {
+    if (!currentUser) return;
+
+    try {
+      const reqRef = doc(db, "users", currentUser.uid, "friendRequests", requestId);
+      const reqSnap = await getDoc(reqRef);
+
+      if (!reqSnap.exists()) {
+        alert("요청이 없음");
+        return;
+      }
+
+      const req = reqSnap.data();
+
+      await setDoc(doc(db, "users", currentUser.uid, "friends", req.fromUid), {
+        uid: req.fromUid,
+        name: req.fromName || "친구",
+        email: req.fromEmail || "",
+        createdAt: serverTimestamp()
+      });
+
+      await setDoc(doc(db, "users", req.fromUid, "friends", currentUser.uid), {
+        uid: currentUser.uid,
+        name: currentUser.name,
+        email: currentUser.email || "",
+        createdAt: serverTimestamp()
+      });
+
+      await deleteDoc(reqRef);
+
+      alert("친구 추가됨");
+    } catch (err) {
+      alert("친구 수락 실패: " + err.message);
+    }
+  }
+
+  async function rejectFriend(requestId) {
+    if (!currentUser) return;
+
+    try {
+      await deleteDoc(doc(db, "users", currentUser.uid, "friendRequests", requestId));
+    } catch (err) {
+      alert("거절 실패: " + err.message);
+    }
+  }
+
+  function inviteFriend(friendUid) {
+    if (!roomCode) {
+      alert("먼저 방을 만들거나 입장해라.");
+      return;
+    }
+
+    alert("초대 링크:\n" + location.origin + `/?room=${encodeURIComponent(roomCode)}`);
+  }
+
+  function escapeHtml(text) {
+    return String(text)
+      .replaceAll("&", "&amp;")
+      .replaceAll("<", "&lt;")
+      .replaceAll(">", "&gt;")
+      .replaceAll('"', "&quot;")
+      .replaceAll("'", "&#039;");
+  }
+
+  onAuthStateChanged(auth, async user => {
+    ensureOnlineUI();
+
+    if (user) {
+      currentUser = {
+        uid: user.uid,
+        name: user.displayName || user.email || "Google User",
+        email: user.email || "",
+        photoURL: user.photoURL || "",
+        provider: "google"
+      };
+
+      try {
+        await saveUserProfile();
+        startFriendListeners();
+      } catch (err) {
+        console.log(err);
+      }
+    } else if (currentUser?.provider === "google") {
+      currentUser = null;
+      stopFriendListeners();
+    }
+
+    renderAccount();
+  });
+
+  function connectSocket(onOpen) {
+    if (ws && ws.readyState === WebSocket.OPEN) {
+      onOpen?.();
+      return;
+    }
+
+    if (ws) ws.close();
+
+    ws = new WebSocket(SERVER);
+
+    ws.onopen = () => {
+      onOpen?.();
+    };
+
+    ws.onerror = () => {
+      alert("서버 연결 에러");
+    };
+
+    ws.onclose = () => {
+      console.log("서버 연결 끊김");
+    };
+
+    ws.onmessage = e => {
+      const data = JSON.parse(e.data);
+      handleServerMessage(data);
+    };
+  }
+
+  function handleServerMessage(data) {
+    if (data.type === "rooms") {
+      roomList = data.rooms || [];
+      renderRoomList();
+      return;
+    }
+
+    if (data.type === "roomCreated") {
+      roomCode = data.roomId || data.roomCode || data.id;
+      if (roomCode) {
+        joinOnlineById(roomCode, data.password || "");
+      }
+      return;
+    }
+
+    if (data.type === "waiting") {
+      showGame();
+      status("매칭 찾는 중...");
+      const boardDiv = document.getElementById("board");
+      if (boardDiv) boardDiv.innerHTML = "";
+      return;
+    }
+
+    if (data.type === "start") {
+      myCard = data.card;
+      myColor = data.color;
+      board = data.board;
+      turn = data.turn;
+      enPassant = data.enPassant || null;
+      moved = data.moved || moved;
+
+      if (data.capturedPieces) {
+        cardState.necroCapturedPieces = data.capturedPieces;
+      }
+
+      if (data.spaceTravelEnabled !== undefined) {
+        cardState.spaceTravelEnabled = data.spaceTravelEnabled;
+      }
+
+      if (data.equalityUses) {
+        equalityUses = data.equalityUses;
+      }
+
+      showGame();
+      renderCard();
+      render();
+      return;
+    }
+
+    if (data.type === "update") {
+      board = data.board;
+      turn = data.turn;
+      enPassant = data.enPassant || null;
+      moved = data.moved || moved;
+
+      if (data.doubleMove && myColor) {
+        cardState.doubleMoveLeft = data.doubleMove[myColor];
+        cardState.doubleMoveActive = cardState.doubleMoveLeft > 0;
+      }
+
+      if (data.wildHorse && myColor) {
+        cardState.wildHorse = data.wildHorse[myColor];
+      }
+
+      if (data.kingReturn && myColor) {
+        cardState.kingReturn = data.kingReturn[myColor] || null;
+      }
+
+      if (data.reactionary && myColor) {
+        const myReactionary = data.reactionary[myColor];
+
+        if (myReactionary) {
+          cardState.reactionaryActive = myReactionary.active;
+          cardState.reactionaryRook = myReactionary.rook;
+          cardState.reactionaryChecks = myReactionary.checks;
+        }
+      }
+
+      if (data.capturedBy && myColor) {
+        cardState.necroCapturedPieces = data.capturedBy[myColor] || [];
+      }
+
+      if (data.spaceTravel && myColor) {
+        cardState.spaceTravelEnabled = !!data.spaceTravel[myColor];
+      }
+
+      if (data.equalityUses) {
+        equalityUses = data.equalityUses;
+      }
+
+      if (
+        data.usedCards &&
+        myColor &&
+        data.usedCards[myColor] &&
+        myCard !== "equality" &&
+        myCard !== "reactionary" &&
+        myCard !== "spaceTravel"
+      ) {
+        myCard = null;
+      }
+
+      selected = null;
+      moves = [];
+      removeGhost();
+
+      renderCard();
+      render();
+      return;
+    }
+
+    if (data.type === "reactionaryRequest") {
+      if (data.color) {
+        turn = data.color;
+      }
+
+      cardState.activeMode = "reactionaryPick";
+      selected = null;
+      moves = data.options || [];
+
+      alert(data.message || "킹이 잡혔습니다. 반동분자로 왕룩을 선택하세요.");
+
+      renderCard();
+      render();
+      return;
+    }
+
+    if (data.type === "gameover") {
+      board = data.board;
+
+      removeGhost();
+      render();
+
+      alert("게임 끝! 승자: " + data.winner);
+      return;
+    }
+
+    if (data.type === "full") {
+      alert("방이 가득 참");
+      return;
+    }
+
+    if (data.type === "wrongPassword") {
+      alert("비밀번호가 틀림");
+      return;
+    }
+
+    if (data.type === "error") {
+      alert(data.message);
+    }
+  }
+
+  function createNamedRoom() {
+    const name = document.getElementById("roomNameInput")?.value?.trim() || "무제 방";
+    const password = document.getElementById("roomPasswordInput")?.value || "";
+    const id = Math.random().toString(36).substring(2, 8).toUpperCase();
+
+    connectSocket(() => {
+      ws.send(JSON.stringify({
+        type: "createRoom",
+        roomId: id,
+        roomName: name,
+        password,
+        user: currentUser
+      }));
+
+      setTimeout(() => {
+        if (!roomCode) {
+          roomCode = id;
+          joinOnlineById(id, password);
+        }
+      }, 500);
+    });
+  }
+
+  function refreshRooms() {
+    ensureOnlineUI();
+
+    connectSocket(() => {
+      ws.send(JSON.stringify({
+        type: "listRooms"
+      }));
+    });
+
+    setTimeout(() => {
+      if (roomList.length === 0) {
+        const list = document.getElementById("roomList");
+        if (list) {
+          list.innerHTML = `<div class="modalDesc">서버가 방 목록을 지원하지 않으면 기존 방 코드 입장을 사용해야 함.</div>`;
+        }
+      }
+    }, 800);
+  }
+
+  function renderRoomList() {
+    const list = document.getElementById("roomList");
+    if (!list) return;
+
+    if (roomList.length === 0) {
+      list.innerHTML = `<div class="modalDesc">열린 방 없음</div>`;
+      return;
+    }
+
+    list.innerHTML = roomList.map(room => `
+      <div class="listItem">
+        <b>${escapeHtml(room.name || room.roomName || room.id || room.roomId)}</b>
+        <span>${room.hasPassword ? "🔒" : "공개"}</span>
+        <button onclick="Game.joinRoomFromList('${room.id || room.roomId}', ${room.hasPassword ? "true" : "false"})">입장</button>
+      </div>
+    `).join("");
+  }
+
+  function joinRoomFromList(id, hasPassword) {
+    let password = "";
+
+    if (hasPassword) {
+      password = prompt("비밀번호 입력") || "";
+    }
+
+    joinOnlineById(id, password);
+  }
+
+  function joinOnlineById(id, password = "") {
+    localMode = false;
+    roomCode = id;
+
+    connectSocket(() => {
+      ws.send(JSON.stringify({
+        type: "joinRoom",
+        roomId: id,
+        password,
+        user: currentUser
+      }));
+
+      ws.send(JSON.stringify({
+        type: "join",
+        roomId: id,
+        password,
+        user: currentUser
+      }));
+    });
+  }
+
+  function makeRoom() {
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const input = document.getElementById("roomInput");
+
+    if (input) {
+      input.value = code;
+    }
+
+    alert("방 코드: " + code);
+    joinOnline();
+  }
+
+  function joinOnline() {
+    const input = document.getElementById("roomInput")?.value.trim().toUpperCase();
+    if (!input) return alert("방 코드를 입력해라.");
+
+    joinOnlineById(input, "");
   }
 
   function closeAllCardModals() {
@@ -161,574 +783,6 @@ const Game = (() => {
     closeAllCardModals();
   }
 
-  function updateLoginUI() {
-    const el = document.getElementById("loginState");
-    if (!el) return;
-
-    if (currentUser) {
-      el.textContent = `로그인됨: ${getDisplayName()}`;
-      return;
-    }
-
-    const nick = localStorage.getItem("randomchess_nick");
-
-    if (nick) {
-      el.textContent = `닉네임 로그인됨: ${nick}`;
-      return;
-    }
-
-    el.textContent = "로그인 안 됨";
-  }
-
-  async function loginNickname() {
-    const nick = document.getElementById("nickInput")?.value.trim();
-    const pass = document.getElementById("passInput")?.value;
-
-    if (!nick) {
-      alert("닉네임을 입력해라.");
-      return;
-    }
-
-    if (!pass) {
-      alert("비밀번호를 입력해라.");
-      return;
-    }
-
-    const uid = "nick_" + nick.toLowerCase();
-
-    localStorage.setItem("randomchess_nick", nick);
-    localStorage.setItem("randomchess_pass", pass);
-    localStorage.setItem("randomchess_uid", uid);
-
-    try {
-      await setDoc(doc(db, "users", uid), {
-        uid,
-        nickname: nick,
-        loginType: "nickname",
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-    } catch (err) {
-      console.log(err);
-    }
-
-    currentUser = null;
-    updateLoginUI();
-    alert("닉네임 로그인 완료");
-  }
-
-  async function loginGoogle() {
-    try {
-      const result = await signInWithPopup(auth, googleProvider);
-      currentUser = result.user;
-
-      await setDoc(doc(db, "users", currentUser.uid), {
-        uid: currentUser.uid,
-        nickname: currentUser.displayName || currentUser.email || "googleUser",
-        email: currentUser.email || "",
-        loginType: "google",
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-
-      updateLoginUI();
-      alert("Google 로그인 완료");
-    } catch (err) {
-      console.log(err);
-
-      try {
-        await signInWithRedirect(auth, googleProvider);
-      } catch (err2) {
-        console.log(err2);
-        alert("Google 로그인 실패. Firebase Google 로그인/Authorized domains 설정 확인해라.");
-      }
-    }
-  }
-
-  async function logout() {
-    try {
-      await signOut(auth);
-    } catch (err) {
-      console.log(err);
-    }
-
-    currentUser = null;
-    localStorage.removeItem("randomchess_nick");
-    localStorage.removeItem("randomchess_pass");
-    localStorage.removeItem("randomchess_uid");
-
-    updateLoginUI();
-    alert("로그아웃 완료");
-  }
-
-  onAuthStateChanged(auth, async user => {
-    currentUser = user;
-
-    if (user) {
-      try {
-        await setDoc(doc(db, "users", user.uid), {
-          uid: user.uid,
-          nickname: user.displayName || user.email || "googleUser",
-          email: user.email || "",
-          loginType: "google",
-          updatedAt: serverTimestamp()
-        }, { merge: true });
-      } catch (err) {
-        console.log(err);
-      }
-    }
-
-    updateLoginUI();
-  });
-
-  getRedirectResult(auth).then(result => {
-    if (result?.user) {
-      currentUser = result.user;
-      updateLoginUI();
-    }
-  }).catch(err => console.log(err));
-
-  function ensureSocket(callback) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      callback();
-      return;
-    }
-
-    if (ws) {
-      try {
-        ws.close();
-      } catch {}
-    }
-
-    ws = new WebSocket(SERVER);
-
-    ws.onopen = () => {
-      setupSocketHandlers();
-      callback();
-    };
-
-    ws.onerror = () => {
-      alert("서버 연결 에러. Render 배포 상태 확인해라.");
-    };
-
-    ws.onclose = () => {
-      console.log("서버 연결 끊김");
-    };
-  }
-
-  function setupSocketHandlers() {
-    ws.onmessage = e => {
-      const data = JSON.parse(e.data);
-
-      if (data.type === "roomList") {
-        renderRoomList(data.rooms || []);
-        return;
-      }
-
-      if (data.type === "roomCreated") {
-        const info = data.roomInfo;
-        if (info?.id) {
-          roomCode = info.id;
-          alert(`방 생성됨: ${info.name} / 코드 ${info.id}`);
-        }
-        return;
-      }
-
-      if (data.type === "waiting") {
-        localMode = false;
-        if (data.roomInfo?.id) roomCode = data.roomInfo.id;
-        showGame();
-        status("상대 기다리는 중...");
-        document.getElementById("board").innerHTML = "";
-        return;
-      }
-
-      if (data.type === "start") {
-        localMode = false;
-        myCard = data.card;
-        myColor = data.color;
-        board = data.board;
-        turn = data.turn;
-        enPassant = data.enPassant || null;
-        moved = data.moved || moved;
-
-        if (data.roomInfo?.id) roomCode = data.roomInfo.id;
-
-        if (data.capturedPieces) {
-          cardState.necroCapturedPieces = data.capturedPieces;
-        }
-
-        if (data.spaceTravelEnabled !== undefined) {
-          cardState.spaceTravelEnabled = data.spaceTravelEnabled;
-        }
-
-        if (data.equalityUses) {
-          equalityUses = data.equalityUses;
-        }
-
-        showGame();
-        renderCard();
-        render();
-        return;
-      }
-
-      if (data.type === "update") {
-        board = data.board;
-        turn = data.turn;
-        enPassant = data.enPassant || null;
-        moved = data.moved || moved;
-
-        if (data.roomInfo?.id) roomCode = data.roomInfo.id;
-
-        if (data.doubleMove && myColor) {
-          cardState.doubleMoveLeft = data.doubleMove[myColor];
-          cardState.doubleMoveActive = cardState.doubleMoveLeft > 0;
-        }
-
-        if (data.wildHorse && myColor) {
-          cardState.wildHorse = data.wildHorse[myColor];
-        }
-
-        if (data.kingReturn && myColor) {
-          cardState.kingReturn = data.kingReturn[myColor] || null;
-        }
-
-        if (data.reactionary && myColor) {
-          const myReactionary = data.reactionary[myColor];
-
-          if (myReactionary) {
-            cardState.reactionaryActive = myReactionary.active;
-            cardState.reactionaryRook = myReactionary.rook;
-            cardState.reactionaryChecks = myReactionary.checks;
-          }
-        }
-
-        if (data.capturedBy && myColor) {
-          cardState.necroCapturedPieces = data.capturedBy[myColor] || [];
-        }
-
-        if (data.spaceTravel && myColor) {
-          cardState.spaceTravelEnabled = !!data.spaceTravel[myColor];
-        }
-
-        if (data.equalityUses) {
-          equalityUses = data.equalityUses;
-        }
-
-        if (
-          data.usedCards &&
-          myColor &&
-          data.usedCards[myColor] &&
-          myCard !== "equality" &&
-          myCard !== "reactionary" &&
-          myCard !== "spaceTravel"
-        ) {
-          myCard = null;
-        }
-
-        selected = null;
-        moves = [];
-        removeGhost();
-
-        renderCard();
-        render();
-        return;
-      }
-
-      if (data.type === "reactionaryRequest") {
-        if (data.color) {
-          turn = data.color;
-        }
-
-        cardState.activeMode = "reactionaryPick";
-        selected = null;
-        moves = data.options || [];
-
-        alert(data.message || "킹이 잡혔습니다. 반동분자로 왕룩을 선택하세요.");
-
-        renderCard();
-        render();
-        return;
-      }
-
-      if (data.type === "gameover") {
-        board = data.board;
-
-        removeGhost();
-        render();
-
-        alert("게임 끝! 승자: " + data.winner);
-        return;
-      }
-
-      if (data.type === "opponentLeft") {
-        alert(data.message || "상대가 나갔습니다.");
-        return;
-      }
-
-      if (data.type === "full") {
-        alert("방이 가득 참");
-        return;
-      }
-
-      if (data.type === "error") {
-        alert(data.message);
-        return;
-      }
-    };
-  }
-
-  function showGame() {
-    document.getElementById("menu").classList.add("hidden");
-    document.getElementById("game").classList.remove("hidden");
-  }
-
-  function backMenu() {
-    removeGhost();
-    closeAllCardModals();
-    document.getElementById("game").classList.add("hidden");
-    document.getElementById("menu").classList.remove("hidden");
-    refreshRooms();
-    refreshFriends();
-  }
-
-  function status(text) {
-    document.getElementById("status").textContent = text;
-  }
-
-  function startLocal() {
-    localMode = true;
-    myColor = null;
-    roomCode = null;
-    myCard = null;
-    resetState();
-    showGame();
-    renderCard();
-    render();
-  }
-
-  function createOnlineRoom() {
-    const name = document.getElementById("roomNameInput")?.value.trim() || `${getDisplayName()}의 방`;
-    const password = document.getElementById("roomPasswordInput")?.value || "";
-    const isPrivate = !!document.getElementById("privateRoomInput")?.checked;
-
-    resetState();
-    localMode = false;
-
-    ensureSocket(() => {
-      ws.send(JSON.stringify({
-        type: "createRoom",
-        name,
-        password,
-        isPrivate,
-        hostName: getDisplayName(),
-        hostUid: getUid()
-      }));
-    });
-  }
-
-  function refreshRooms() {
-    ensureSocket(() => {
-      ws.send(JSON.stringify({
-        type: "listRooms"
-      }));
-    });
-  }
-
-  function renderRoomList(rooms) {
-    const list = document.getElementById("roomList");
-    if (!list) return;
-
-    list.innerHTML = "";
-
-    if (rooms.length === 0) {
-      list.innerHTML = `<div class="roomItem"><div class="roomMeta">공개 방이 없음</div></div>`;
-      return;
-    }
-
-    rooms.forEach(room => {
-      const box = document.createElement("div");
-      box.className = "roomItem";
-
-      box.innerHTML = `
-        <div class="roomTitle">${escapeHtml(room.name)}</div>
-        <div class="roomMeta">
-          코드: ${room.id}<br>
-          호스트: ${escapeHtml(room.hostName || "unknown")}<br>
-          인원: ${room.players}/${room.maxPlayers}<br>
-          ${room.hasPassword ? "비밀번호 있음" : "비밀번호 없음"}
-        </div>
-        <div class="roomBtns">
-          <button data-room="${room.id}">입장</button>
-        </div>
-      `;
-
-      box.querySelector("button").onclick = () => openJoinModal(room);
-
-      list.appendChild(box);
-    });
-  }
-
-  function openJoinModal(room) {
-    pendingJoinRoom = room;
-
-    document.getElementById("joinTitle").textContent = `${room.name} 입장`;
-    document.getElementById("joinPasswordInput").value = "";
-    document.getElementById("joinPasswordInput").placeholder = room.hasPassword ? "방 비밀번호" : "비밀번호 없음";
-
-    document.getElementById("joinModal").classList.remove("hidden");
-  }
-
-  function closeJoinModal() {
-    pendingJoinRoom = null;
-    document.getElementById("joinModal").classList.add("hidden");
-  }
-
-  function confirmJoinRoom() {
-    if (!pendingJoinRoom) return;
-
-    const password = document.getElementById("joinPasswordInput")?.value || "";
-
-    joinRoomById(pendingJoinRoom.id, password);
-    closeJoinModal();
-  }
-
-  function joinRoomById(id, password = "") {
-    resetState();
-    localMode = false;
-    roomCode = id;
-
-    ensureSocket(() => {
-      ws.send(JSON.stringify({
-        type: "joinRoom",
-        roomId: id,
-        password,
-        uid: getUid(),
-        name: getDisplayName()
-      }));
-    });
-  }
-
-  function copyInvite() {
-    if (!roomCode) {
-      alert("현재 방 코드가 없음");
-      return;
-    }
-
-    const text = `랜덤능력체스 초대 코드: ${roomCode}`;
-
-    navigator.clipboard?.writeText(text)
-      .then(() => alert("초대 코드 복사됨"))
-      .catch(() => alert(text));
-  }
-
-  async function addFriend() {
-    const target = document.getElementById("friendInput")?.value.trim();
-
-    if (!target) {
-      alert("친구 닉네임 또는 UID를 입력해라.");
-      return;
-    }
-
-    const myUid = getUid();
-
-    if (!myUid) {
-      alert("먼저 로그인해라.");
-      return;
-    }
-
-    try {
-      let targetUid = target;
-      let targetName = target;
-
-      const usersRef = collection(db, "users");
-      const q = query(usersRef, where("nickname", "==", target));
-      const snap = await getDocs(q);
-
-      if (!snap.empty) {
-        const data = snap.docs[0].data();
-        targetUid = data.uid || snap.docs[0].id;
-        targetName = data.nickname || target;
-      }
-
-      await setDoc(doc(db, "users", myUid, "friends", targetUid), {
-        uid: targetUid,
-        nickname: targetName,
-        addedAt: serverTimestamp()
-      }, { merge: true });
-
-      alert("친구 추가 완료");
-      refreshFriends();
-    } catch (err) {
-      console.log(err);
-      alert("친구 추가 실패. Firestore 설정 확인해라.");
-    }
-  }
-
-  async function refreshFriends() {
-    const list = document.getElementById("friendList");
-    if (!list) return;
-
-    const myUid = getUid();
-
-    if (!myUid) {
-      list.innerHTML = `<div class="friendItem"><div class="friendMeta">로그인 필요</div></div>`;
-      return;
-    }
-
-    try {
-      const snap = await getDocs(collection(db, "users", myUid, "friends"));
-
-      list.innerHTML = "";
-
-      if (snap.empty) {
-        list.innerHTML = `<div class="friendItem"><div class="friendMeta">친구 없음</div></div>`;
-        return;
-      }
-
-      snap.forEach(docSnap => {
-        const f = docSnap.data();
-
-        const box = document.createElement("div");
-        box.className = "friendItem";
-
-        box.innerHTML = `
-          <div class="friendTitle">${escapeHtml(f.nickname || f.uid || "친구")}</div>
-          <div class="friendMeta">UID: ${escapeHtml(f.uid || "")}</div>
-          <div class="friendBtns">
-            <button>현재 방 초대복사</button>
-          </div>
-        `;
-
-        box.querySelector("button").onclick = () => {
-          if (!roomCode) {
-            alert("현재 온라인 방이 없습니다.");
-            return;
-          }
-
-          const text = `${f.nickname || "친구"}님 랜덤능력체스 초대 코드: ${roomCode}`;
-          navigator.clipboard?.writeText(text)
-            .then(() => alert("친구 초대문 복사됨"))
-            .catch(() => alert(text));
-        };
-
-        list.appendChild(box);
-      });
-    } catch (err) {
-      console.log(err);
-      list.innerHTML = `<div class="friendItem"><div class="friendMeta">친구 목록 불러오기 실패</div></div>`;
-    }
-  }
-
-  function resign() {
-    const winner = turn === "white" ? "black" : "white";
-    alert("기권! 승자: " + winner);
-
-    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: "resign"
-      }));
-    }
-  }
-
   function syncCardUpdate(equalityUsed = false) {
     if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({
@@ -770,12 +824,54 @@ const Game = (() => {
     renderCard();
   }
 
+  function showGame() {
+    document.getElementById("menu")?.classList.add("hidden");
+    document.getElementById("game")?.classList.remove("hidden");
+  }
+
+  function backMenu() {
+    removeGhost();
+    closeAllCardModals();
+    document.getElementById("game")?.classList.add("hidden");
+    document.getElementById("menu")?.classList.remove("hidden");
+    renderAccount();
+  }
+
+  function status(text) {
+    const el = document.getElementById("status");
+    if (el) el.textContent = text;
+  }
+
+  function startLocal() {
+    localMode = true;
+    myColor = null;
+    roomCode = null;
+    myCard = null;
+    resetState();
+    showGame();
+    renderCard();
+    render();
+  }
+
+  function resign() {
+    const winner = turn === "white" ? "black" : "white";
+    alert("기권! 승자: " + winner);
+
+    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: "resign"
+      }));
+    }
+  }
+
   function render() {
     const boardDiv = document.getElementById("board");
+    if (!boardDiv) return;
+
     boardDiv.innerHTML = "";
 
     status(
-      (localMode ? "로컬 2인" : `온라인 ${roomCode || "대기"} / 내 색: ${myColor || "대기중"}`)
+      (localMode ? "로컬 2인" : `온라인 ${roomCode} / 내 색: ${myColor || "대기중"}`)
       + ` | ${turn} 턴`
     );
 
@@ -986,12 +1082,12 @@ const Game = (() => {
     }
 
     if (cardState.activeMode === "spacePlace") {
-      doSpaceTravelTo(r, c);
+      placeSpaceTravel(r, c);
       return;
     }
 
     if (cardState.activeMode === "necroPlace") {
-      doNecroPlace(r, c);
+      placeNecro(r, c);
       return;
     }
 
@@ -1063,7 +1159,7 @@ const Game = (() => {
   }
 
   function askPromotion() {
-    document.getElementById("promotionModal").classList.remove("hidden");
+    document.getElementById("promotionModal")?.classList.remove("hidden");
 
     return new Promise(resolve => {
       promotionResolve = resolve;
@@ -1071,11 +1167,11 @@ const Game = (() => {
   }
 
   function choosePromotion(piece) {
-    document.getElementById("promotionModal").classList.add("hidden");
+    document.getElementById("promotionModal")?.classList.add("hidden");
 
     if (promotionResolve) {
-      promotionResolve(piece);
       promotionResolve = null;
+      promotionResolve?.(piece);
     }
   }
 
@@ -1176,153 +1272,6 @@ const Game = (() => {
     finishMoveTurn();
   }
 
-  function updateMoved(piece, from) {
-    if (piece === "wk") moved.wk = true;
-    if (piece === "bk") moved.bk = true;
-
-    if (piece === "wr" && from.r === 7 && from.c === 0) moved.wrA = true;
-    if (piece === "wr" && from.r === 7 && from.c === 7) moved.wrH = true;
-    if (piece === "br" && from.r === 0 && from.c === 0) moved.brA = true;
-    if (piece === "br" && from.r === 0 && from.c === 7) moved.brH = true;
-  }
-
-  function getMoves(r, c) {
-    const piece = board[r]?.[c];
-
-    if (!piece) return [];
-
-    const color = piece[0];
-    const type = piece[1];
-    const res = [];
-
-    const add = (nr, nc, kind = "normal") => {
-      if (nr < 0 || nr > 7 || nc < 0 || nc > 7) return;
-
-      if (!board[nr][nc] || board[nr][nc][0] !== color) {
-        res.push({ r: nr, c: nc, type: kind });
-      }
-    };
-
-    const slide = dirs => {
-      for (const [dr, dc] of dirs) {
-        let nr = r + dr;
-        let nc = c + dc;
-
-        while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
-          if (!board[nr][nc]) {
-            res.push({ r: nr, c: nc, type: "normal" });
-          } else {
-            if (board[nr][nc][0] !== color) {
-              res.push({ r: nr, c: nc, type: "normal" });
-            }
-            break;
-          }
-
-          nr += dr;
-          nc += dc;
-        }
-      }
-    };
-
-    if (type === "p") {
-      const dir = color === "w" ? -1 : 1;
-      const start = color === "w" ? 6 : 1;
-
-      if (!board[r + dir]?.[c]) add(r + dir, c);
-
-      if (r === start && !board[r + dir]?.[c] && !board[r + dir * 2]?.[c]) {
-        add(r + dir * 2, c, "doublePawn");
-      }
-
-      for (const dc of [-1, 1]) {
-        const target = board[r + dir]?.[c + dc];
-
-        if (target && target[0] !== color) add(r + dir, c + dc);
-
-        if (enPassant && enPassant.r === r + dir && enPassant.c === c + dc) {
-          res.push({ r: r + dir, c: c + dc, type: "enPassant" });
-        }
-      }
-    }
-
-    if (type === "n") {
-      if (cardState.wildHorse) {
-        return getWildHorseMoves(r, c, board, color);
-      }
-
-      [
-        [2,1],[1,2],[-1,2],[-2,1],
-        [-2,-1],[-1,-2],[1,-2],[2,-1]
-      ].forEach(([dr, dc]) => add(r + dr, c + dc));
-    }
-
-    if (type === "b") slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
-    if (type === "r") slide([[1,0],[-1,0],[0,1],[0,-1]]);
-    if (type === "q") slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
-
-    if (type === "k") {
-      for (let dr = -1; dr <= 1; dr++) {
-        for (let dc = -1; dc <= 1; dc++) {
-          if (dr || dc) add(r + dr, c + dc);
-        }
-      }
-
-      if (cardState.kingReturn && cardState.kingReturn.turns > 0) {
-        const mode = cardState.kingReturn.mode;
-
-        const addKingReturnMove = (dr, dc) => {
-          const nr = r + dr;
-          const nc = c + dc;
-
-          if (nr < 0 || nr > 7 || nc < 0 || nc > 7) return;
-
-          const target = board[nr][nc];
-
-          if (!target || target[0] !== color) {
-            res.push({ r: nr, c: nc, type: "kingReturn" });
-          }
-        };
-
-        if (mode === "bn" || mode === "qn") {
-          [
-            [2,1],[1,2],[-1,2],[-2,1],
-            [-2,-1],[-1,-2],[1,-2],[2,-1]
-          ].forEach(([dr, dc]) => addKingReturnMove(dr, dc));
-        }
-
-        if (mode === "bn") {
-          slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
-        }
-
-        if (mode === "q" || mode === "qn") {
-          slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
-        }
-      }
-
-      if (color === "w" && r === 7 && c === 4 && !moved.wk) {
-        if (!moved.wrH && board[7][5] === "" && board[7][6] === "" && board[7][7] === "wr") {
-          add(7, 6, "castleKing");
-        }
-
-        if (!moved.wrA && board[7][1] === "" && board[7][2] === "" && board[7][3] === "" && board[7][0] === "wr") {
-          add(7, 2, "castleQueen");
-        }
-      }
-
-      if (color === "b" && r === 0 && c === 4 && !moved.bk) {
-        if (!moved.brH && board[0][5] === "" && board[0][6] === "" && board[0][7] === "br") {
-          add(0, 6, "castleKing");
-        }
-
-        if (!moved.brA && board[0][1] === "" && board[0][2] === "" && board[0][3] === "" && board[0][0] === "br") {
-          add(0, 2, "castleQueen");
-        }
-      }
-    }
-
-    return res;
-  }
-
   function getEqualityTargets() {
     if (cardState.activeMode !== "equalityPickB") return [];
     if (!cardState.selectedSquares[0]) return [];
@@ -1352,7 +1301,11 @@ const Game = (() => {
 
       if (mid1 || mid2) continue;
 
-      result.push({ r: row, c: targetC, type: "equalityCastle" });
+      result.push({
+        r: row,
+        c: targetC,
+        type: "equalityCastle"
+      });
     }
 
     return result;
@@ -1479,691 +1432,159 @@ const Game = (() => {
     turn = turn === "white" ? "black" : "white";
   }
 
-  function getExorcismBishopOptions() {
-    const result = [];
-    const color = turn[0];
+  function updateMoved(piece, from) {
+    if (piece === "wk") moved.wk = true;
+    if (piece === "bk") moved.bk = true;
 
-    for (let r = 0; r < 8; r++) {
-      for (let c = 0; c < 8; c++) {
-        if (board[r][c] === color + "b") {
-          result.push({ r, c });
-        }
-      }
-    }
-
-    return result;
+    if (piece === "wr" && from.r === 7 && from.c === 0) moved.wrA = true;
+    if (piece === "wr" && from.r === 7 && from.c === 7) moved.wrH = true;
+    if (piece === "br" && from.r === 0 && from.c === 0) moved.brA = true;
+    if (piece === "br" && from.r === 0 && from.c === 7) moved.brH = true;
   }
 
-  function showExorcismModal() {
-    const modal = document.getElementById("exorcismModal");
-    const list = document.getElementById("exorcismList");
-
-    const bishops = getExorcismBishopOptions();
-
-    if (bishops.length === 0) {
-      alert("사용할 수 있는 비숍이 없습니다.");
-      cancelCardSelection();
-      return;
-    }
-
-    list.innerHTML = "";
-
-    bishops.forEach(pos => {
-      const btn = document.createElement("button");
-      btn.className = "selectBtn";
-      btn.textContent = `비숍 ${squareName(pos.r, pos.c)}`;
-      btn.onclick = () => chooseExorcismBishop(pos.r, pos.c);
-      list.appendChild(btn);
-    });
-
-    cardState.activeMode = "exorcism";
-    pendingCardUse = myCard;
-
-    selected = null;
-    moves = [];
-
-    modal.classList.remove("hidden");
-    render();
-  }
-
-  function chooseExorcismBishop(r, c) {
+  function getMoves(r, c) {
     const piece = board[r]?.[c];
 
-    if (!piece || piece[0] !== turn[0] || piece[1] !== "b") {
-      alert("퇴마(물리)는 내 비숍만 사용할 수 있습니다.");
-      return;
-    }
+    if (!piece) return [];
 
-    closeAllCardModals();
+    const color = piece[0];
+    const type = piece[1];
+    const res = [];
 
-    doExorcism(r, c);
+    const add = (nr, nc, kind = "normal") => {
+      if (nr < 0 || nr > 7 || nc < 0 || nc > 7) return;
 
-    cardState.activeMode = null;
-    selected = null;
-    moves = [];
-
-    consumeCurrentCard();
-    syncCardUpdate();
-
-    renderCard();
-    render();
-  }
-
-  function getReactionaryOwnerColor() {
-    if (!localMode && myColor) {
-      return myColor;
-    }
-
-    return turn;
-  }
-
-  function getReactionaryRookOptions() {
-    const result = [];
-    const owner = getReactionaryOwnerColor();
-
-    if (owner === "white") {
-      if (moved.wk || moved.wrA || moved.wrH) {
-        return result;
+      if (!board[nr][nc] || board[nr][nc][0] !== color) {
+        res.push({
+          r: nr,
+          c: nc,
+          type: kind
+        });
       }
-
-      if (board[7]?.[0] === "wr") {
-        result.push({ r: 7, c: 0 });
-      }
-
-      if (board[7]?.[7] === "wr") {
-        result.push({ r: 7, c: 7 });
-      }
-    }
-
-    if (owner === "black") {
-      if (moved.bk || moved.brA || moved.brH) {
-        return result;
-      }
-
-      if (board[0]?.[0] === "br") {
-        result.push({ r: 0, c: 0 });
-      }
-
-      if (board[0]?.[7] === "br") {
-        result.push({ r: 0, c: 7 });
-      }
-    }
-
-    return result;
-  }
-
-  function showReactionaryModal() {
-    const modal = document.getElementById("reactionaryModal");
-    const list = document.getElementById("reactionaryList");
-
-    const rooks = getReactionaryRookOptions();
-
-    if (rooks.length === 0) {
-      alert("선택 가능한 룩이 없습니다. 캐슬링 관련 기물이 움직였거나 룩이 없습니다.");
-      cancelCardSelection();
-      return;
-    }
-
-    list.innerHTML = "";
-
-    rooks.forEach(pos => {
-      const btn = document.createElement("button");
-      btn.className = "selectBtn";
-      btn.textContent = `룩 ${squareName(pos.r, pos.c)}`;
-      btn.onclick = () => chooseReactionaryRook(pos.r, pos.c);
-      list.appendChild(btn);
-    });
-
-    cardState.activeMode = "reactionaryPick";
-    pendingCardUse = null;
-
-    selected = null;
-    moves = rooks.map(pos => ({
-      r: pos.r,
-      c: pos.c,
-      type: "normal"
-    }));
-
-    modal.classList.remove("hidden");
-    render();
-  }
-
-  function chooseReactionaryRook(r, c) {
-    const owner = getReactionaryOwnerColor();
-    const piece = board[r]?.[c];
-
-    if (!piece || piece[0] !== owner[0] || piece[1] !== "r") {
-      alert("내 룩만 왕룩으로 선택 가능합니다.");
-      return;
-    }
-
-    const options = getReactionaryRookOptions();
-    const ok = options.some(pos => pos.r === r && pos.c === c);
-
-    if (!ok) {
-      alert("캐슬링 둘 다 하지 않은 상태의 시작 위치 룩만 선택 가능합니다.");
-      return;
-    }
-
-    closeAllCardModals();
-
-    cardState.reactionaryActive = true;
-    cardState.reactionaryRook = { r, c };
-    cardState.reactionaryChecks = 0;
-    cardState.activeMode = null;
-
-    selected = null;
-    moves = [];
-
-    syncCardUpdate();
-
-    alert("왕룩 지정 완료. 이 룩이 잡히면 패배합니다.");
-
-    renderCard();
-    render();
-  }
-
-  function getSpaceTravelPieces() {
-    if (!cardState.spaceTravelEnabled) return [];
-
-    if (!localMode && myColor && turn !== myColor) {
-      return [];
-    }
-
-    const color = turn[0];
-    const result = [];
-
-    const corners = color === "w"
-      ? [{ r: 0, c: 0 }, { r: 0, c: 7 }]
-      : [{ r: 7, c: 0 }, { r: 7, c: 7 }];
-
-    for (const pos of corners) {
-      const piece = board[pos.r]?.[pos.c];
-
-      if (piece && piece[0] === color) {
-        result.push({ r: pos.r, c: pos.c, type: "normal" });
-      }
-    }
-
-    return result;
-  }
-
-  function getSpaceDestinationMoves(color) {
-    const result = [];
-
-    for (let r = 0; r < 8; r++) {
-      for (let c = 0; c < 8; c++) {
-        const target = board[r][c];
-
-        if (!target) {
-          result.push({ r, c, type: "normal" });
-          continue;
-        }
-
-        if (target[0] !== color && target[1] !== "k") {
-          result.push({ r, c, type: "normal" });
-        }
-      }
-    }
-
-    return result;
-  }
-
-  function activateSpaceTravel() {
-    showSpaceModal();
-  }
-
-  function showSpaceModal() {
-    const modal = document.getElementById("spaceModal");
-    const list = document.getElementById("spaceList");
-
-    const targets = getSpaceTravelPieces();
-
-    if (targets.length === 0) {
-      alert("텔레포트 가능한 기물이 없습니다.");
-      cancelCardSelection();
-      return;
-    }
-
-    list.innerHTML = "";
-
-    targets.forEach(pos => {
-      const piece = board[pos.r][pos.c];
-
-      const btn = document.createElement("button");
-      btn.className = "selectBtn";
-      btn.textContent = `${pieceName(piece)} ${squareName(pos.r, pos.c)}`;
-      btn.onclick = () => chooseSpacePiece(pos.r, pos.c);
-      list.appendChild(btn);
-    });
-
-    cardState.activeMode = "spacePick";
-    cardState.selectedSquares = [];
-
-    selected = null;
-    moves = targets;
-
-    modal.classList.remove("hidden");
-    render();
-  }
-
-  function chooseSpacePiece(r, c) {
-    const piece = board[r]?.[c];
-
-    if (!piece || piece[0] !== turn[0]) {
-      alert("텔레포트 가능한 내 기물만 선택 가능합니다.");
-      return;
-    }
-
-    const targets = getSpaceTravelPieces();
-    const ok = targets.some(pos => pos.r === r && pos.c === c);
-
-    if (!ok) {
-      alert("상대 진영 코너에 도착한 기물만 선택 가능합니다.");
-      return;
-    }
-
-    closeAllCardModals();
-
-    cardState.selectedSquares = [{ r, c }];
-    cardState.activeMode = "spacePlace";
-
-    selected = { r, c };
-    moves = getSpaceDestinationMoves(piece[0]);
-
-    alert("이동할 칸을 선택하세요. 상대 기물은 잡을 수 있지만 킹은 못 잡습니다.");
-    renderCard();
-    render();
-  }
-
-  function doSpaceTravelTo(r, c) {
-    const from = cardState.selectedSquares[0];
-
-    if (!from) {
-      alert("텔레포트할 기물이 선택되지 않았습니다.");
-      cardState.activeMode = null;
-      cardState.selectedSquares = [];
-      selected = null;
-      moves = [];
-      render();
-      return;
-    }
-
-    const piece = board[from.r]?.[from.c];
-    const target = board[r]?.[c];
-
-    if (!piece) {
-      alert("텔레포트할 기물이 없음");
-      cardState.activeMode = null;
-      cardState.selectedSquares = [];
-      selected = null;
-      moves = [];
-      render();
-      return;
-    }
-
-    if (target && target[0] === piece[0]) {
-      alert("내 기물이 있는 칸으로는 텔레포트할 수 없습니다.");
-      return;
-    }
-
-    if (target && target[1] === "k") {
-      alert("우주여행으로 킹은 잡을 수 없습니다.");
-      return;
-    }
-
-    if (target && target[0] !== piece[0] && target[1] !== "k") {
-      cardState.necroCapturedPieces.push(target);
-    }
-
-    board[r][c] = piece;
-    board[from.r][from.c] = "";
-
-    cardState.selectedSquares = [];
-    cardState.activeMode = null;
-
-    selected = null;
-    moves = [];
-
-    turn = turn === "white" ? "black" : "white";
-
-    syncCardUpdate();
-    renderCard();
-    render();
-  }
-
-  function showNecroModal() {
-    const modal = document.getElementById("necroModal");
-    const list = document.getElementById("necroList");
-
-    if (cardState.necroCapturedPieces.length === 0) {
-      alert("부활시킬 수 있는 잡은 기물이 없습니다.");
-      cancelCardSelection();
-      return;
-    }
-
-    list.innerHTML = "";
-
-    cardState.necroCapturedPieces.forEach((piece, index) => {
-      const btn = document.createElement("button");
-      btn.className = "selectBtn";
-      btn.textContent = `${pieceName(piece)} (${piece[0] === "w" ? "백" : "흑"})`;
-      btn.onclick = () => chooseNecroPiece(index);
-      list.appendChild(btn);
-    });
-
-    cardState.activeMode = "necroPick";
-    pendingCardUse = myCard;
-
-    selected = null;
-    moves = [];
-
-    modal.classList.remove("hidden");
-    render();
-  }
-
-  function chooseNecroPiece(index) {
-    const piece = cardState.necroCapturedPieces[index];
-
-    if (!piece) {
-      alert("선택한 기물이 없습니다.");
-      return;
-    }
-
-    cardState.necroSelectedPiece = piece;
-    cardState.activeMode = "necroPlace";
-
-    moves = getNecroPlaceMoves();
-    selected = null;
-
-    closeAllCardModals();
-
-    if (moves.length === 0) {
-      alert("킹 주변에 부활 가능한 빈칸이 없습니다.");
-      cardState.necroSelectedPiece = null;
-      cardState.activeMode = null;
-      moves = [];
-      render();
-      return;
-    }
-
-    alert("킹 주변 빈칸을 선택하세요.");
-    render();
-  }
-
-  function doNecroPlace(r, c) {
-    if (board[r][c]) {
-      alert("빈칸만 가능");
-      return;
-    }
-
-    const kingPos = findMyKing();
-
-    if (!kingPos) {
-      alert("킹 없음");
-      return;
-    }
-
-    const near =
-      Math.abs(kingPos.r - r) <= 1 &&
-      Math.abs(kingPos.c - c) <= 1;
-
-    if (!near) {
-      alert("킹 주변만 가능");
-      return;
-    }
-
-    const color = turn[0];
-    const type = cardState.necroSelectedPiece[1];
-
-    board[r][c] = color + type;
-
-    cardState.necroUsed = true;
-
-    const usedIndex = cardState.necroCapturedPieces.findIndex(
-      p => p === cardState.necroSelectedPiece
-    );
-
-    if (usedIndex !== -1) {
-      cardState.necroCapturedPieces.splice(usedIndex, 1);
-    }
-
-    cardState.necroSelectedPiece = null;
-    cardState.activeMode = null;
-
-    selected = null;
-    moves = [];
-
-    turn = turn === "white" ? "black" : "white";
-
-    consumeCurrentCard();
-    syncCardUpdate();
-
-    renderCard();
-    render();
-  }
-
-  function getNecroPlaceMoves() {
-    const kingPos = findMyKing();
-    if (!kingPos) return [];
-
-    const result = [];
-
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        if (dr === 0 && dc === 0) continue;
-
-        const r = kingPos.r + dr;
-        const c = kingPos.c + dc;
-
-        if (r < 0 || r > 7 || c < 0 || c > 7) continue;
-        if (board[r][c]) continue;
-
-        result.push({ r, c, type: "normal" });
-      }
-    }
-
-    return result;
-  }
-
-  function findMyKing() {
-    const king = turn === "white" ? "wk" : "bk";
-
-    for (let r = 0; r < 8; r++) {
-      for (let c = 0; c < 8; c++) {
-        if (board[r][c] === king) {
-          return { r, c };
-        }
-      }
-    }
-
-    return null;
-  }
-
-  function pieceName(piece) {
-    const names = {
-      p: "폰",
-      r: "룩",
-      n: "나이트",
-      b: "비숍",
-      q: "퀸",
-      k: "킹"
     };
 
-    return names[piece?.[1]] || "알 수 없는 기물";
-  }
+    const slide = dirs => {
+      for (const [dr, dc] of dirs) {
+        let nr = r + dr;
+        let nc = c + dc;
 
-  function getKingReturnData(score) {
-    if (score >= 3 && score <= 6) return { mode: "bn", turns: 15, score };
-    if (score >= 7 && score <= 10) return { mode: "q", turns: 5, score };
-    if (score >= 11 && score <= 14) return { mode: "q", turns: 10, score };
-    if (score >= 15 && score <= 18) return { mode: "q", turns: 15, score };
-    if (score >= 19 && score <= 22) return { mode: "qn", turns: 15, score };
+        while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
+          if (!board[nr][nc]) {
+            res.push({ r: nr, c: nc, type: "normal" });
+          } else {
+            if (board[nr][nc][0] !== color) {
+              res.push({ r: nr, c: nc, type: "normal" });
+            }
+            break;
+          }
 
-    return null;
-  }
-
-  function activateKingReturn() {
-    const values = {
-      q: 9,
-      r: 5,
-      b: 3,
-      n: 3
+          nr += dr;
+          nc += dc;
+        }
+      }
     };
 
-    let score = 0;
+    if (type === "p") {
+      const dir = color === "w" ? -1 : 1;
+      const start = color === "w" ? 6 : 1;
 
-    for (let r = 0; r < 8; r++) {
-      for (let c = 0; c < 8; c++) {
-        const piece = board[r][c];
+      if (!board[r + dir]?.[c]) add(r + dir, c);
 
-        if (!piece) continue;
-        if (piece[0] !== turn[0]) continue;
-        if (piece[1] === "k") continue;
-        if (piece[1] === "p") continue;
+      if (r === start && !board[r + dir]?.[c] && !board[r + dir * 2]?.[c]) {
+        add(r + dir * 2, c, "doublePawn");
+      }
 
-        score += values[piece[1]] || 0;
-        board[r][c] = "";
+      for (const dc of [-1, 1]) {
+        const target = board[r + dir]?.[c + dc];
+
+        if (target && target[0] !== color) add(r + dir, c + dc);
+
+        if (enPassant && enPassant.r === r + dir && enPassant.c === c + dc) {
+          res.push({
+            r: r + dir,
+            c: c + dc,
+            type: "enPassant"
+          });
+        }
       }
     }
 
-    if (score >= 23) {
-      alert("왕의 귀환 실패! 23점 이상이라 패배");
-
-      if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "resign" }));
+    if (type === "n") {
+      if (cardState.wildHorse) {
+        return getWildHorseMoves(r, c, board, color);
       }
 
-      return;
+      [
+        [2,1],[1,2],[-1,2],[-2,1],
+        [-2,-1],[-1,-2],[1,-2],[2,-1]
+      ].forEach(([dr, dc]) => add(r + dr, c + dc));
     }
 
-    cardState.kingReturn = getKingReturnData(score);
+    if (type === "b") slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
+    if (type === "r") slide([[1,0],[-1,0],[0,1],[0,-1]]);
+    if (type === "q") slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
 
-    if (cardState.kingReturn) {
-      alert(`왕의 귀환 발동! 점수 ${score}, ${cardState.kingReturn.turns}턴 강화`);
-    } else {
-      alert(`왕의 귀환 발동! 점수 ${score}, 강화 없음`);
-    }
-
-    turn = turn === "white" ? "black" : "white";
-  }
-
-  function activateCard() {
-    if (!myCard) {
-      alert("사용할 카드가 없습니다.");
-      return;
-    }
-
-    const usedCard = myCard;
-
-    if (usedCard === "equality") {
-      const result = useCard(usedCard, cardState);
-
-      alert(result.message);
-
-      selected = null;
-      moves = [];
-
-      renderCard();
-      render();
-      return;
-    }
-
-    if (usedCard === "reactionary") {
-      alert("반동분자는 패시브 능력입니다. 내 킹이 잡혔을 때 조건을 만족하면 발동됩니다.");
-      return;
-    }
-
-    if (!localMode && myColor && turn !== myColor && usedCard === "doubleMove") {
-      alert("더블무브는 내 턴에만 사용할 수 있습니다.");
-      return;
-    }
-
-    if (usedCard === "exorcism") {
-      pendingCardUse = usedCard;
-      showExorcismModal();
-      return;
-    }
-
-    if (usedCard === "necro") {
-      if (cardState.necroUsed) {
-        alert("네크로맨서는 이미 사용했습니다.");
-        return;
+    if (type === "k") {
+      for (let dr = -1; dr <= 1; dr++) {
+        for (let dc = -1; dc <= 1; dc++) {
+          if (dr || dc) add(r + dr, c + dc);
+        }
       }
 
-      if (cardState.necroCapturedPieces.length === 0) {
-        alert("아직 부활시킬 잡은 기물이 없습니다.");
-        return;
+      if (cardState.kingReturn && cardState.kingReturn.turns > 0) {
+        const mode = cardState.kingReturn.mode;
+
+        const addKingReturnMove = (dr, dc) => {
+          const nr = r + dr;
+          const nc = c + dc;
+
+          if (nr < 0 || nr > 7 || nc < 0 || nc > 7) return;
+
+          const target = board[nr][nc];
+
+          if (!target || target[0] !== color) {
+            res.push({ r: nr, c: nc, type: "kingReturn" });
+          }
+        };
+
+        if (mode === "bn" || mode === "qn") {
+          [
+            [2,1],[1,2],[-1,2],[-2,1],
+            [-2,-1],[-1,-2],[1,-2],[2,-1]
+          ].forEach(([dr, dc]) => addKingReturnMove(dr, dc));
+        }
+
+        if (mode === "bn") {
+          slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
+        }
+
+        if (mode === "q" || mode === "qn") {
+          slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
+        }
       }
 
-      pendingCardUse = usedCard;
-      showNecroModal();
-      return;
-    }
+      if (color === "w" && r === 7 && c === 4 && !moved.wk) {
+        if (!moved.wrH && board[7][5] === "" && board[7][6] === "" && board[7][7] === "wr") {
+          add(7, 6, "castleKing");
+        }
 
-    if (usedCard === "spaceTravel") {
-      const result = useCard(usedCard, cardState);
-
-      if (!result.ok) {
-        alert(result.message);
-        return;
+        if (!moved.wrA && board[7][1] === "" && board[7][2] === "" && board[7][3] === "" && board[7][0] === "wr") {
+          add(7, 2, "castleQueen");
+        }
       }
 
-      alert(result.message);
+      if (color === "b" && r === 0 && c === 4 && !moved.bk) {
+        if (!moved.brH && board[0][5] === "" && board[0][6] === "" && board[0][7] === "br") {
+          add(0, 6, "castleKing");
+        }
 
-      pendingCardUse = null;
-
-      if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: "card",
-          card: usedCard
-        }));
+        if (!moved.brA && board[0][1] === "" && board[0][2] === "" && board[0][3] === "" && board[0][0] === "br") {
+          add(0, 2, "castleQueen");
+        }
       }
-
-      syncCardUpdate();
-
-      renderCard();
-      render();
-      return;
     }
 
-    if (usedCard === "kingReturn") {
-      pendingCardUse = usedCard;
-
-      activateKingReturn();
-
-      consumeCurrentCard();
-      syncCardUpdate();
-
-      renderCard();
-      render();
-      return;
-    }
-
-    if (usedCard === "doubleMove" || usedCard === "wildHorse") {
-      const result = useCard(usedCard, cardState);
-
-      alert(result.message);
-
-      if (!result.ok) return;
-
-      pendingCardUse = usedCard;
-      consumeCurrentCard();
-
-      renderCard();
-      render();
-      return;
-    }
-
-    const result = useCard(usedCard, cardState);
-    alert(result.message);
-
-    if (result.ok) {
-      pendingCardUse = usedCard;
-      consumeCurrentCard();
-      renderCard();
-      render();
-    }
+    return res;
   }
 
   function renderCard() {
@@ -2233,118 +1654,3 @@ const Game = (() => {
     }
 
     if (cardState.reactionaryActive && cardState.reactionaryRook) {
-      area.innerHTML = `
-        <div class="cardBox">
-          <div class="cardTitle">왕룩 활성화</div>
-          <div class="cardDesc">
-            왕룩 위치: ${squareName(cardState.reactionaryRook.r, cardState.reactionaryRook.c)}<br>
-            위협 누적: ${cardState.reactionaryChecks}/3
-          </div>
-        </div>
-      `;
-      return;
-    }
-
-    if (cardState.spaceTravelEnabled && spaceTargets.length > 0) {
-      area.innerHTML = `
-        <div class="cardBox">
-          <div class="cardTitle">우주여행 준비됨</div>
-          <div class="cardDesc">상대 진영 코너에 도착한 내 기물을 원하는 칸으로 텔레포트합니다.</div>
-          <button class="cardBtn" onclick="Game.activateSpaceTravel()">
-            텔레포트 사용
-          </button>
-        </div>
-      `;
-      return;
-    }
-
-    if (!myCard) {
-      area.innerHTML = "";
-      return;
-    }
-
-    if (myCard === "equality") {
-      area.innerHTML = `
-        <div class="cardBox">
-          <div class="cardTitle">${getCardName(myCard)}</div>
-          <div class="cardDesc">
-            ${getCardDescription(myCard)}<br>
-            <b>사용 횟수 제한 없음</b>
-          </div>
-          <button class="cardBtn" onclick="Game.activateCard()">
-            평등국가 사용
-          </button>
-        </div>
-      `;
-      return;
-    }
-
-    if (myCard === "reactionary") {
-      area.innerHTML = `
-        <div class="cardBox">
-          <div class="cardTitle">${getCardName(myCard)}</div>
-          <div class="cardDesc">
-            ${getCardDescription(myCard)}<br>
-            <b>킹이 잡혔을 때 조건부 발동</b>
-          </div>
-        </div>
-      `;
-      return;
-    }
-
-    area.innerHTML = `
-      <div class="cardBox">
-        <div class="cardTitle">${getCardName(myCard)}</div>
-        <div class="cardDesc">${getCardDescription(myCard)}</div>
-        <button class="cardBtn" onclick="Game.activateCard()">
-          능력 사용
-        </button>
-      </div>
-    `;
-  }
-
-  function escapeHtml(str) {
-    return String(str)
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
-  }
-
-  setTimeout(() => {
-    updateLoginUI();
-    refreshRooms();
-    refreshFriends();
-  }, 500);
-
-  return {
-    startLocal,
-    backMenu,
-    resign,
-    choosePromotion,
-    activateCard,
-    activateSpaceTravel,
-
-    cancelCardSelection,
-    chooseExorcismBishop,
-    chooseReactionaryRook,
-    chooseSpacePiece,
-    chooseNecroPiece,
-
-    loginNickname,
-    loginGoogle,
-    logout,
-
-    createOnlineRoom,
-    refreshRooms,
-    closeJoinModal,
-    confirmJoinRoom,
-    copyInvite,
-
-    addFriend,
-    refreshFriends
-  };
-})();
-
-window.Game = Game;
