@@ -30,9 +30,7 @@ const server = http.createServer((req, res) => {
 
   fs.readFile(fullPath, (err, data) => {
     if (err) {
-      res.writeHead(404, {
-        "Content-Type": "text/plain; charset=UTF-8"
-      });
+      res.writeHead(404, { "Content-Type": "text/plain; charset=UTF-8" });
       res.end("404 Not Found");
       return;
     }
@@ -60,7 +58,6 @@ const CARD_POOL = [
 
 function drawCards() {
   const shuffled = [...CARD_POOL].sort(() => Math.random() - 0.5);
-
   return {
     white: shuffled[0],
     black: shuffled[1]
@@ -80,15 +77,13 @@ function createBoard() {
   ];
 }
 
-function createRoom(meta = {}) {
+function createRoom(options = {}) {
   return {
-    id: meta.id || makeRoomId(),
-    name: meta.name || "이름 없는 방",
-    password: meta.password || "",
-    isPrivate: !!meta.isPrivate,
-    hostName: meta.hostName || "unknown",
-    hostUid: meta.hostUid || "",
-    createdAt: Date.now(),
+    id: options.id || "",
+    name: options.name || options.id || "",
+    password: options.password || "",
+    locked: !!options.password,
+    hostName: options.hostName || "방장",
 
     players: [],
     board: createBoard(),
@@ -152,32 +147,6 @@ function createRoom(meta = {}) {
   };
 }
 
-function makeRoomId() {
-  return Math.random().toString(36).substring(2, 8).toUpperCase();
-}
-
-function safeRoomInfo(room) {
-  return {
-    id: room.id,
-    name: room.name,
-    isPrivate: room.isPrivate,
-    hasPassword: !!room.password,
-    hostName: room.hostName,
-    players: room.players.length,
-    maxPlayers: 2,
-    createdAt: room.createdAt,
-    over: room.over
-  };
-}
-
-function getPublicRooms() {
-  return Object.values(rooms)
-    .filter(room => !room.over)
-    .filter(room => !room.isPrivate)
-    .map(safeRoomInfo)
-    .sort((a, b) => b.createdAt - a.createdAt);
-}
-
 function send(ws, data) {
   if (ws && ws.readyState === ws.OPEN) {
     ws.send(JSON.stringify(data));
@@ -194,6 +163,22 @@ function otherColor(color) {
 
 function getPlayer(room, color) {
   return room.players.find(p => p.color === color);
+}
+
+function listOpenRooms() {
+  return Object.entries(rooms)
+    .filter(([id, room]) => !room.over && room.players.length < 2)
+    .map(([id, room]) => ({
+      id,
+      roomId: id,
+      name: room.name || id,
+      roomName: room.name || id,
+      hostName: room.hostName || "알 수 없음",
+      players: room.players.length,
+      maxPlayers: 2,
+      locked: !!room.locked,
+      hasPassword: !!room.locked
+    }));
 }
 
 function clearPath(board, from, to) {
@@ -395,9 +380,7 @@ function updateMoved(room, piece, from) {
 
 function isReactionaryRook(room, color, r, c) {
   const state = room.reactionary[color];
-
   if (!state || !state.active || !state.rook) return false;
-
   return state.rook.r === r && state.rook.c === c;
 }
 
@@ -415,7 +398,7 @@ function canAttackSquare(room, from, to, color) {
 
   if (type === "p") {
     const dir = color === "white" ? -1 : 1;
-    return ar === 1 && dr === dir;
+    return ac === 1 && dr === dir;
   }
 
   if (type === "r") {
@@ -533,9 +516,7 @@ function getReactionaryOptions(room, color) {
   const result = [];
 
   if (color === "white") {
-    if (room.moved.wk || room.moved.wrA || room.moved.wrH) {
-      return result;
-    }
+    if (room.moved.wk || room.moved.wrA || room.moved.wrH) return result;
 
     if (room.board[7]?.[0] === "wr") {
       result.push({ r: 7, c: 0, type: "normal" });
@@ -547,9 +528,7 @@ function getReactionaryOptions(room, color) {
   }
 
   if (color === "black") {
-    if (room.moved.bk || room.moved.brA || room.moved.brH) {
-      return result;
-    }
+    if (room.moved.bk || room.moved.brA || room.moved.brH) return result;
 
     if (room.board[0]?.[0] === "br") {
       result.push({ r: 0, c: 0, type: "normal" });
@@ -605,8 +584,7 @@ function makeUpdatePayload(room) {
     capturedBy: room.capturedBy,
     spaceTravel: room.spaceTravel,
     usedCards: room.usedCards,
-    equalityUses: room.equalityUses,
-    roomInfo: safeRoomInfo(room)
+    equalityUses: room.equalityUses
   };
 }
 
@@ -620,16 +598,7 @@ function finishGame(room, winner) {
   });
 }
 
-function startIfReady(room) {
-  if (room.players.length < 2) {
-    send(room.players[0]?.ws, {
-      type: "waiting",
-      message: "상대 기다리는 중...",
-      roomInfo: safeRoomInfo(room)
-    });
-    return;
-  }
-
+function startRoom(room) {
   room.players.forEach(player => {
     send(player.ws, {
       type: "start",
@@ -641,36 +610,30 @@ function startIfReady(room) {
       card: room.cards[player.color],
       capturedPieces: room.capturedBy[player.color],
       spaceTravelEnabled: room.spaceTravel[player.color],
-      equalityUses: room.equalityUses,
-      roomInfo: safeRoomInfo(room)
+      equalityUses: room.equalityUses
     });
   });
 }
 
-function joinRoom(ws, data) {
-  const roomId = data.roomId;
+function joinExistingRoom(ws, roomId, password, user) {
   const room = rooms[roomId];
 
   if (!room) {
     send(ws, {
       type: "error",
-      message: "방이 없습니다."
+      message: "존재하지 않는 방입니다."
     });
     return null;
   }
 
   if (room.players.length >= 2) {
-    send(ws, {
-      type: "full",
-      message: "방이 가득 찼습니다."
-    });
+    send(ws, { type: "full" });
     return null;
   }
 
-  if (room.password && room.password !== (data.password || "")) {
+  if (room.locked && room.password !== password) {
     send(ws, {
-      type: "error",
-      message: "비밀번호가 틀렸습니다."
+      type: "wrongPassword"
     });
     return null;
   }
@@ -680,13 +643,19 @@ function joinRoom(ws, data) {
   room.players.push({
     ws,
     color,
-    uid: data.uid || "",
-    name: data.name || "guest"
+    user: user || null
   });
 
-  startIfReady(room);
+  if (room.players.length === 1) {
+    send(ws, {
+      type: "waiting",
+      message: "상대 기다리는 중..."
+    });
+  } else {
+    startRoom(room);
+  }
 
-  return { room, color };
+  return color;
 }
 
 wss.on("connection", ws => {
@@ -707,54 +676,82 @@ wss.on("connection", ws => {
     }
 
     if (data.type === "listRooms") {
+      const roomsList = listOpenRooms();
+
       send(ws, {
         type: "roomList",
-        rooms: getPublicRooms()
+        rooms: roomsList
       });
+
+      send(ws, {
+        type: "rooms",
+        rooms: roomsList
+      });
+
       return;
     }
 
     if (data.type === "createRoom") {
-      const id = makeRoomId();
+      const id = String(data.roomId || data.roomName || Math.random().toString(36).substring(2, 8).toUpperCase()).trim();
+      const name = String(data.roomName || id).trim();
+      const password = String(data.password || "");
+
+      if (!id) {
+        send(ws, {
+          type: "error",
+          message: "방 이름이 없습니다."
+        });
+        return;
+      }
+
+      if (rooms[id]) {
+        send(ws, {
+          type: "error",
+          message: "이미 같은 이름/코드의 방이 있습니다."
+        });
+        return;
+      }
+
+      roomId = id;
+      color = "white";
 
       const room = createRoom({
         id,
-        name: String(data.name || "이름 없는 방").slice(0, 24),
-        password: String(data.password || ""),
-        isPrivate: !!data.isPrivate,
-        hostName: String(data.hostName || "host").slice(0, 24),
-        hostUid: String(data.hostUid || "")
+        name,
+        password,
+        hostName: data.user?.name || data.host?.name || "방장"
       });
 
-      rooms[id] = room;
-      roomId = id;
-
-      const joined = joinRoom(ws, {
-        roomId: id,
-        password: data.password || "",
-        uid: data.hostUid || "",
-        name: data.hostName || "host"
+      room.players.push({
+        ws,
+        color,
+        user: data.user || data.host || null
       });
 
-      if (joined) {
-        color = joined.color;
+      rooms[roomId] = room;
 
-        send(ws, {
-          type: "roomCreated",
-          roomInfo: safeRoomInfo(room)
-        });
-      }
+      send(ws, {
+        type: "roomCreated",
+        roomId,
+        roomCode: roomId,
+        id: roomId,
+        password
+      });
+
+      send(ws, {
+        type: "waiting",
+        message: "상대 기다리는 중..."
+      });
 
       return;
     }
 
-    if (data.type === "joinRoom") {
-      roomId = data.roomId;
+    if (data.type === "joinRoom" || data.type === "joinNamedRoom") {
+      roomId = data.roomId || data.roomName;
+      const joinedColor = joinExistingRoom(ws, roomId, String(data.password || ""), data.user || null);
 
-      const joined = joinRoom(ws, data);
-
-      if (joined) {
-        color = joined.color;
+      if (joinedColor) {
+        color = joinedColor;
       }
 
       return;
@@ -767,20 +764,15 @@ wss.on("connection", ws => {
         rooms[roomId] = createRoom({
           id: roomId,
           name: roomId,
-          hostName: data.name || "host",
-          hostUid: data.uid || ""
+          password: data.password || "",
+          hostName: data.user?.name || "방장"
         });
       }
 
-      const joined = joinRoom(ws, {
-        roomId,
-        password: data.password || "",
-        uid: data.uid || "",
-        name: data.name || "guest"
-      });
+      const joinedColor = joinExistingRoom(ws, roomId, String(data.password || ""), data.user || null);
 
-      if (joined) {
-        color = joined.color;
+      if (joinedColor) {
+        color = joinedColor;
       }
 
       return;
@@ -850,8 +842,8 @@ wss.on("connection", ws => {
 
       if (room.turn !== color) {
         send(ws, {
-          type:"error",
-          message:"네 차례가 아님"
+          type: "error",
+          message: "네 차례가 아님"
         });
         return;
       }
@@ -861,8 +853,8 @@ wss.on("connection", ws => {
 
       if (!moveType) {
         send(ws, {
-          type:"error",
-          message:"불가능한 이동"
+          type: "error",
+          message: "불가능한 이동"
         });
         return;
       }
@@ -1038,10 +1030,12 @@ wss.on("connection", ws => {
       return;
     }
 
-    broadcast(room, {
-      type: "opponentLeft",
-      message: "상대가 나갔습니다."
-    });
+    if (!room.over) {
+      broadcast(room, {
+        type: "error",
+        message: "상대가 나갔습니다."
+      });
+    }
   });
 });
 
