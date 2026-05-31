@@ -298,14 +298,21 @@ const Game = (() => {
   }
 
   onAuthStateChanged(auth, async user => {
-    if (user) {
-      await applyGoogleUser(user);
-    } else if (currentUser?.provider === "google") {
-      currentUser = null;
-      stopFriendListeners();
-      renderAccount();
-    }
-  });
+  console.log("AUTH STATE:", user);
+
+  if (user) {
+    await applyGoogleUser(user);
+    setLoginState((user.displayName || user.email || "Google User") + " 로그인됨");
+    return;
+  }
+
+  if (currentUser?.provider === "google") {
+    currentUser = null;
+    stopFriendListeners();
+  }
+
+  renderAccount();
+});
 
   function stopFriendListeners() {
     if (unsubscribeFriends) unsubscribeFriends();
@@ -2396,20 +2403,40 @@ const Game = (() => {
   }
 
   window.addEventListener("load", () => {
-    renderAccount();
+  renderAccount();
 
-    getRedirectResult(auth)
-      .then(async result => {
-        if (result && result.user) {
-          await applyGoogleUser(result.user);
-          alert((result.user.displayName || result.user.email || "Google User") + " 로그인됨");
-        }
-      })
-      .catch(err => {
-        if (err && err.code) {
-          alert("구글 로그인 결과 처리 실패: " + err.code + "\n" + err.message);
-        }
-      });
+  getRedirectResult(auth)
+    .then(async result => {
+      console.log("REDIRECT RESULT:", result);
+
+      if (result && result.user) {
+        await applyGoogleUser(result.user);
+        setLoginState((result.user.displayName || result.user.email || "Google User") + " 로그인됨");
+        alert((result.user.displayName || result.user.email || "Google User") + " 로그인됨");
+      } else {
+        console.log("redirect result 없음");
+      }
+    })
+    .catch(err => {
+      console.error("REDIRECT ERROR:", err);
+      alert("구글 로그인 결과 처리 실패: " + err.code + "\n" + err.message);
+    });
+
+  const savedName = localStorage.getItem("randomChessGuestName");
+  const nick = document.getElementById("nickInput");
+
+  if (savedName && nick) {
+    nick.value = savedName;
+  }
+
+  const params = new URLSearchParams(location.search);
+  const room = params.get("room");
+
+  if (room) {
+    pendingJoinRoomId = room;
+    openJoinRoom(room, false);
+  }
+});
 
     const savedName = localStorage.getItem("randomChessGuestName");
     const nick = document.getElementById("nickInput");
