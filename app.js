@@ -13,7 +13,8 @@ import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/fireba
 import {
   getAuth,
   GoogleAuthProvider,
-  signInWithPopup,
+  signInWithRedirect,
+  getRedirectResult,
   signOut,
   onAuthStateChanged
 } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-auth.js";
@@ -121,7 +122,9 @@ const Game = (() => {
   async function sha256(text) {
     const data = new TextEncoder().encode(text);
     const hash = await crypto.subtle.digest("SHA-256", data);
-    return Array.from(new Uint8Array(hash)).map(b => b.toString(16).padStart(2, "0")).join("");
+    return Array.from(new Uint8Array(hash))
+      .map(b => b.toString(16).padStart(2, "0"))
+      .join("");
   }
 
   function squareName(r, c) {
@@ -186,11 +189,9 @@ const Game = (() => {
 
   async function loginGoogle() {
     try {
-      const result = await signInWithPopup(auth, googleProvider);
-      await applyGoogleUser(result.user);
-      alert((result.user.displayName || result.user.email || "Google User") + " 로그인됨");
+      await signInWithRedirect(auth, googleProvider);
     } catch (err) {
-      alert("구글 로그인 실패: " + err.code + "\n" + err.message);
+      alert("구글 로그인 시작 실패: " + err.code + "\n" + err.message);
     }
   }
 
@@ -531,7 +532,9 @@ const Game = (() => {
     }
 
     if (ws) {
-      try { ws.close(); } catch {}
+      try {
+        ws.close();
+      } catch {}
     }
 
     ws = new WebSocket(SERVER);
@@ -769,6 +772,7 @@ const Game = (() => {
     const title = document.getElementById("joinTitle");
 
     if (title) title.textContent = locked ? "비공개 방 입장" : "방 입장";
+
     if (input) {
       input.value = "";
       input.classList.toggle("hidden", !locked);
@@ -2393,6 +2397,19 @@ const Game = (() => {
 
   window.addEventListener("load", () => {
     renderAccount();
+
+    getRedirectResult(auth)
+      .then(async result => {
+        if (result && result.user) {
+          await applyGoogleUser(result.user);
+          alert((result.user.displayName || result.user.email || "Google User") + " 로그인됨");
+        }
+      })
+      .catch(err => {
+        if (err && err.code) {
+          alert("구글 로그인 결과 처리 실패: " + err.code + "\n" + err.message);
+        }
+      });
 
     const savedName = localStorage.getItem("randomChessGuestName");
     const nick = document.getElementById("nickInput");
