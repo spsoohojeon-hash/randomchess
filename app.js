@@ -6,48 +6,14 @@ import {
   getCardDescription
 } from "./cards.js";
 
-import { firebaseConfig } from "./firebase-config.js";
-
-import { initializeApp } from "https://www.gstatic.com/firebasejs/12.13.0/firebase-app.js";
-
-import {
-  getAuth,
-  GoogleAuthProvider,
-  signInWithRedirect,
-  getRedirectResult,
-  signOut,
-  onAuthStateChanged
-} from "https://www.gstatic.com/firebasejs/12.13.0/firebase-auth.js";
-
-import {
-  getFirestore,
-  doc,
-  setDoc,
-  getDoc,
-  deleteDoc,
-  collection,
-  query,
-  where,
-  getDocs,
-  addDoc,
-  onSnapshot,
-  serverTimestamp
-} from "https://www.gstatic.com/firebasejs/12.13.0/firebase-firestore.js";
-
 window.onerror = function(msg, src, line, col, err) {
   alert("에러: " + msg + "\nline: " + line);
 };
-
-const firebaseApp = initializeApp(firebaseConfig);
-const auth = getAuth(firebaseApp);
-const db = getFirestore(firebaseApp);
-const googleProvider = new GoogleAuthProvider();
 
 const Game = (() => {
   const SERVER = "wss://randomchess.onrender.com";
 
   let ws = null;
-
   let board = [];
   let turn = "white";
   let selected = null;
@@ -56,7 +22,6 @@ const Game = (() => {
   let myColor = null;
   let roomCode = null;
   let enPassant = null;
-
   let touchFrom = null;
   let ghost = null;
   let promotionResolve = null;
@@ -64,13 +29,6 @@ const Game = (() => {
   let myCard = null;
   let cardState = createCardState();
   let pendingCardUse = null;
-
-  let currentUser = null;
-  let unsubscribeFriends = null;
-  let unsubscribeRequests = null;
-
-  let roomList = [];
-  let pendingJoinRoomId = null;
 
   let moved = {
     wk: false,
@@ -114,422 +72,124 @@ const Game = (() => {
     ];
   }
 
-  function safeId() {
-    if (crypto.randomUUID) return crypto.randomUUID();
-    return Math.random().toString(36).slice(2) + Date.now().toString(36);
-  }
-
-  async function sha256(text) {
-    const data = new TextEncoder().encode(text);
-    const hash = await crypto.subtle.digest("SHA-256", data);
-    return Array.from(new Uint8Array(hash))
-      .map(b => b.toString(16).padStart(2, "0"))
-      .join("");
-  }
-
   function squareName(r, c) {
     return `${String.fromCharCode(97 + c)}${8 - r}`;
   }
 
-  function escapeHtml(text) {
-    return String(text ?? "")
-      .replaceAll("&", "&amp;")
-      .replaceAll("<", "&lt;")
-      .replaceAll(">", "&gt;")
-      .replaceAll('"', "&quot;")
-      .replaceAll("'", "&#039;");
+  function closeAllCardModals() {
+    document.getElementById("necroModal")?.classList.add("hidden");
+    document.getElementById("exorcismModal")?.classList.add("hidden");
+    document.getElementById("reactionaryModal")?.classList.add("hidden");
+    document.getElementById("spaceModal")?.classList.add("hidden");
   }
 
-  function setLoginState(text) {
-    const el = document.getElementById("loginState");
+  function cancelCardSelection() {
+    closeAllCardModals();
+
+    pendingCardUse = null;
+    cardState.activeMode = null;
+    cardState.selectedSquares = [];
+
+    selected = null;
+    moves = [];
+
+    renderCard();
+    render();
+  }
+
+  function resetState() {
+    board = createBoard();
+    turn = "white";
+    selected = null;
+    moves = [];
+    enPassant = null;
+
+    moved = {
+      wk: false,
+      wrA: false,
+      wrH: false,
+      bk: false,
+      brA: false,
+      brH: false
+    };
+
+    cardState = createCardState();
+    pendingCardUse = null;
+
+    equalityUses = {
+      white: 0,
+      black: 0
+    };
+
+    closeAllCardModals();
+  }
+
+  function syncCardUpdate(equalityUsed = false) {
+    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: "cardUpdate",
+        board,
+        turn,
+        enPassant,
+        moved,
+        necroCapturedPieces: cardState.necroCapturedPieces,
+        kingReturn: cardState.kingReturn,
+        reactionary: {
+          active: cardState.reactionaryActive,
+          rook: cardState.reactionaryRook,
+          checks: cardState.reactionaryChecks
+        },
+        spaceTravelEnabled: cardState.spaceTravelEnabled,
+        equalityUsed
+      }));
+    }
+  }
+
+  function consumeCurrentCard() {
+    const usedCard = pendingCardUse || myCard;
+    if (!usedCard) return;
+
+    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
+      ws.send(JSON.stringify({
+        type: "card",
+        card: usedCard
+      }));
+    }
+
+    if (usedCard === myCard) {
+      myCard = null;
+    }
+
+    pendingCardUse = null;
+    renderCard();
+  }
+
+  function showGame() {
+    document.getElementById("menu")?.classList.add("hidden");
+    document.getElementById("game")?.classList.remove("hidden");
+  }
+
+  function backMenu() {
+    removeGhost();
+    closeAllCardModals();
+    document.getElementById("game")?.classList.add("hidden");
+    document.getElementById("menu")?.classList.remove("hidden");
+  }
+
+  function status(text) {
+    const el = document.getElementById("status");
     if (el) el.textContent = text;
   }
 
-  function renderAccount() {
-    if (currentUser) {
-      setLoginState(`${currentUser.name} 로그인됨`);
-      const nick = document.getElementById("nickInput");
-      if (nick) nick.value = currentUser.name;
-    } else {
-      setLoginState("로그인 안 됨");
-    }
-  }
-
-  async function saveUserProfile() {
-    if (!currentUser) return;
-
-    try {
-      await setDoc(doc(db, "users", currentUser.uid), {
-        uid: currentUser.uid,
-        name: currentUser.name,
-        nickname: currentUser.name,
-        email: currentUser.email || "",
-        photoURL: currentUser.photoURL || "",
-        provider: currentUser.provider,
-        updatedAt: serverTimestamp()
-      }, { merge: true });
-    } catch (err) {
-      console.log("프로필 저장 실패:", err);
-    }
-  }
-
-  async function applyGoogleUser(user) {
-    currentUser = {
-      uid: user.uid,
-      name: user.displayName || user.email || "Google User",
-      email: user.email || "",
-      photoURL: user.photoURL || "",
-      provider: "google"
-    };
-
-    await saveUserProfile();
-    startFriendListeners();
-    renderAccount();
-  }
-
-  async function loginGoogle() {
-    try {
-      await signInWithRedirect(auth, googleProvider);
-    } catch (err) {
-      alert("구글 로그인 시작 실패: " + err.code + "\n" + err.message);
-    }
-  }
-
-  async function loginNickname() {
-    const nickInput = document.getElementById("nickInput");
-    const passInput = document.getElementById("passInput");
-
-    const name = nickInput?.value?.trim();
-    const pass = passInput?.value || "";
-
-    if (!name) {
-      alert("닉네임을 입력해라.");
-      return;
-    }
-
-    if (!pass) {
-      alert("비밀번호를 입력해라.");
-      return;
-    }
-
-    const key = name.toLowerCase();
-    const passHash = await sha256(pass);
-    const localKey = "randomChessNickAccount_" + key;
-
-    let uid = null;
-
-    try {
-      const accountRef = doc(db, "nicknameAccounts", key);
-      const snap = await getDoc(accountRef);
-
-      if (snap.exists()) {
-        const account = snap.data();
-
-        if (account.passHash !== passHash) {
-          alert("비밀번호가 틀림");
-          return;
-        }
-
-        uid = account.uid;
-      } else {
-        uid = "nick-" + safeId();
-
-        await setDoc(accountRef, {
-          uid,
-          nickname: name,
-          passHash,
-          createdAt: serverTimestamp()
-        });
-      }
-    } catch (err) {
-      const saved = localStorage.getItem(localKey);
-
-      if (saved) {
-        const parsed = JSON.parse(saved);
-
-        if (parsed.passHash !== passHash) {
-          alert("비밀번호가 틀림");
-          return;
-        }
-
-        uid = parsed.uid;
-      } else {
-        uid = "nick-" + safeId();
-
-        localStorage.setItem(localKey, JSON.stringify({
-          uid,
-          passHash
-        }));
-      }
-    }
-
-    localStorage.setItem("randomChessGuestUid", uid);
-    localStorage.setItem("randomChessGuestName", name);
-
-    currentUser = {
-      uid,
-      name,
-      email: "",
-      photoURL: "",
-      provider: "nickname"
-    };
-
-    await saveUserProfile();
-    startFriendListeners();
-    renderAccount();
-
-    alert(name + " 로그인됨");
-  }
-
-  async function logout() {
-    try {
-      if (auth.currentUser) {
-        await signOut(auth);
-      }
-
-      currentUser = null;
-      stopFriendListeners();
-      renderAccount();
-      renderFriends([]);
-      alert("로그아웃됨");
-    } catch (err) {
-      alert("로그아웃 실패: " + err.code + "\n" + err.message);
-    }
-  }
-
-  onAuthStateChanged(auth, async user => {
-  console.log("AUTH STATE:", user);
-
-  if (user) {
-    await applyGoogleUser(user);
-    setLoginState((user.displayName || user.email || "Google User") + " 로그인됨");
-    return;
-  }
-
-  if (currentUser?.provider === "google") {
-    currentUser = null;
-    stopFriendListeners();
-  }
-
-  renderAccount();
-});
-
-  function stopFriendListeners() {
-    if (unsubscribeFriends) unsubscribeFriends();
-    if (unsubscribeRequests) unsubscribeRequests();
-    unsubscribeFriends = null;
-    unsubscribeRequests = null;
-  }
-
-  function startFriendListeners() {
-    stopFriendListeners();
-
-    if (!currentUser) return;
-
-    try {
-      const friendsRef = collection(db, "users", currentUser.uid, "friends");
-
-      unsubscribeFriends = onSnapshot(friendsRef, snap => {
-        const friends = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        renderFriends(friends);
-      }, err => {
-        console.log("친구 구독 실패:", err);
-      });
-
-      const requestsRef = collection(db, "users", currentUser.uid, "friendRequests");
-
-      unsubscribeRequests = onSnapshot(requestsRef, snap => {
-        const requests = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-        renderFriendRequests(requests);
-      }, err => {
-        console.log("친구 요청 구독 실패:", err);
-      });
-    } catch (err) {
-      console.log("친구 리스너 실패:", err);
-    }
-  }
-
-  function renderFriends(friends = []) {
-    const list = document.getElementById("friendList");
-    if (!list) return;
-
-    const requestsHtml = window.__friendRequestsHtml || "";
-
-    if (friends.length === 0) {
-      list.innerHTML = requestsHtml + `<div class="friendItem"><div class="friendMeta">친구 없음</div></div>`;
-      return;
-    }
-
-    const html = friends.map(fr => `
-      <div class="friendItem">
-        <div class="friendTitle">${escapeHtml(fr.name || fr.nickname || "친구")}</div>
-        <div class="friendMeta">UID: ${escapeHtml(fr.uid || fr.id)}</div>
-        <div class="friendBtns">
-          <button onclick="Game.inviteFriend('${escapeHtml(fr.uid || fr.id)}')">초대</button>
-        </div>
-      </div>
-    `).join("");
-
-    list.innerHTML = requestsHtml + html;
-  }
-
-  function renderFriendRequests(requests = []) {
-    if (requests.length === 0) {
-      window.__friendRequestsHtml = "";
-      return;
-    }
-
-    window.__friendRequestsHtml = requests.map(req => `
-      <div class="friendItem">
-        <div class="friendTitle">친구 요청: ${escapeHtml(req.fromName || "알 수 없음")}</div>
-        <div class="friendMeta">UID: ${escapeHtml(req.fromUid || "")}</div>
-        <div class="friendBtns">
-          <button onclick="Game.acceptFriend('${escapeHtml(req.id)}')">수락</button>
-          <button onclick="Game.rejectFriend('${escapeHtml(req.id)}')">거절</button>
-        </div>
-      </div>
-    `).join("");
-
-    refreshFriends();
-  }
-
-  async function refreshFriends() {
-    if (!currentUser) {
-      renderFriends([]);
-      return;
-    }
-
-    try {
-      const snap = await getDocs(collection(db, "users", currentUser.uid, "friends"));
-      const friends = snap.docs.map(d => ({ id: d.id, ...d.data() }));
-      renderFriends(friends);
-    } catch (err) {
-      alert("친구 목록 불러오기 실패: " + err.message);
-    }
-  }
-
-  async function addFriend() {
-    if (!currentUser) {
-      alert("먼저 로그인해라.");
-      return;
-    }
-
-    const value = document.getElementById("friendInput")?.value?.trim();
-
-    if (!value) {
-      alert("친구 닉네임 또는 UID를 입력해라.");
-      return;
-    }
-
-    try {
-      let found = null;
-
-      const direct = await getDoc(doc(db, "users", value));
-
-      if (direct.exists()) {
-        found = direct.data();
-      }
-
-      if (!found) {
-        const usersRef = collection(db, "users");
-        const q1 = query(usersRef, where("nickname", "==", value));
-        const q2 = query(usersRef, where("email", "==", value));
-
-        const [s1, s2] = await Promise.all([getDocs(q1), getDocs(q2)]);
-
-        found = [...s1.docs, ...s2.docs]
-          .map(d => d.data())
-          .find(u => u.uid !== currentUser.uid);
-      }
-
-      if (!found) {
-        alert("해당 유저를 못 찾음. 상대가 먼저 로그인해야 검색됨.");
-        return;
-      }
-
-      if (found.uid === currentUser.uid) {
-        alert("자기 자신은 친구 추가 불가");
-        return;
-      }
-
-      await addDoc(collection(db, "users", found.uid, "friendRequests"), {
-        fromUid: currentUser.uid,
-        fromName: currentUser.name,
-        fromEmail: currentUser.email || "",
-        createdAt: serverTimestamp()
-      });
-
-      alert("친구 요청 보냄");
-    } catch (err) {
-      alert("친구 추가 실패: " + err.message);
-    }
-  }
-
-  async function acceptFriend(requestId) {
-    if (!currentUser) return;
-
-    try {
-      const reqRef = doc(db, "users", currentUser.uid, "friendRequests", requestId);
-      const snap = await getDoc(reqRef);
-
-      if (!snap.exists()) {
-        alert("요청이 없음");
-        return;
-      }
-
-      const req = snap.data();
-
-      await setDoc(doc(db, "users", currentUser.uid, "friends", req.fromUid), {
-        uid: req.fromUid,
-        name: req.fromName || "친구",
-        email: req.fromEmail || "",
-        createdAt: serverTimestamp()
-      });
-
-      await setDoc(doc(db, "users", req.fromUid, "friends", currentUser.uid), {
-        uid: currentUser.uid,
-        name: currentUser.name,
-        email: currentUser.email || "",
-        createdAt: serverTimestamp()
-      });
-
-      await deleteDoc(reqRef);
-      alert("친구 추가됨");
-      refreshFriends();
-    } catch (err) {
-      alert("친구 수락 실패: " + err.message);
-    }
-  }
-
-  async function rejectFriend(requestId) {
-    if (!currentUser) return;
-
-    try {
-      await deleteDoc(doc(db, "users", currentUser.uid, "friendRequests", requestId));
-      refreshFriends();
-    } catch (err) {
-      alert("친구 거절 실패: " + err.message);
-    }
-  }
-
-  function inviteFriend(friendUid) {
-    copyInvite();
-  }
-
-  async function copyInvite() {
-    if (!roomCode) {
-      alert("먼저 방을 만들거나 들어가라.");
-      return;
-    }
-
-    const url = location.origin + "/?room=" + encodeURIComponent(roomCode);
-
-    try {
-      await navigator.clipboard.writeText(url);
-      alert("초대 링크 복사됨:\n" + url);
-    } catch {
-      prompt("초대 링크", url);
-    }
+  function startLocal() {
+    localMode = true;
+    myColor = null;
+    roomCode = null;
+    myCard = null;
+    resetState();
+    showGame();
+    renderCard();
+    render();
   }
 
   function connectSocket(onOpen) {
@@ -564,21 +224,48 @@ const Game = (() => {
     };
   }
 
+  function makeRoom() {
+    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
+    const input = document.getElementById("roomInput");
+
+    if (input) input.value = code;
+
+    alert("방 코드: " + code);
+
+    localMode = false;
+    roomCode = code;
+
+    connectSocket(() => {
+      ws.send(JSON.stringify({
+        type: "join",
+        roomId: code
+      }));
+    });
+  }
+
+  function joinOnline() {
+    const input = document.getElementById("roomInput")?.value.trim().toUpperCase();
+
+    if (!input) {
+      alert("방 코드를 입력해라.");
+      return;
+    }
+
+    localMode = false;
+    roomCode = input;
+
+    connectSocket(() => {
+      ws.send(JSON.stringify({
+        type: "join",
+        roomId: input
+      }));
+    });
+  }
+
   function handleServerMessage(data) {
-    if (data.type === "rooms" || data.type === "roomList") {
-      roomList = data.rooms || [];
-      renderRoomList();
-      return;
-    }
-
-    if (data.type === "roomCreated") {
-      roomCode = data.roomId || data.roomCode || data.id || roomCode;
-      return;
-    }
-
     if (data.type === "waiting") {
       showGame();
-      status(data.message || "상대 기다리는 중...");
+      status(data.message || "매칭 찾는 중...");
       const boardDiv = document.getElementById("board");
       if (boardDiv) boardDiv.innerHTML = "";
       return;
@@ -698,246 +385,9 @@ const Game = (() => {
       return;
     }
 
-    if (data.type === "wrongPassword") {
-      alert("비밀번호가 틀림");
-      return;
-    }
-
     if (data.type === "error") {
       alert(data.message || "서버 오류");
     }
-  }
-
-  function createOnlineRoom() {
-    const name = document.getElementById("roomNameInput")?.value?.trim() || "무제 방";
-    const rawPassword = document.getElementById("roomPasswordInput")?.value || "";
-    const isPrivate = document.getElementById("privateRoomInput")?.checked;
-    const password = isPrivate ? rawPassword : "";
-    const id = Math.random().toString(36).substring(2, 8).toUpperCase();
-
-    if (isPrivate && !password) {
-      alert("비공개 방은 비밀번호를 입력해라.");
-      return;
-    }
-
-    localMode = false;
-    roomCode = id;
-
-    connectSocket(() => {
-      ws.send(JSON.stringify({
-        type: "createRoom",
-        roomId: id,
-        roomName: name,
-        password,
-        user: currentUser
-      }));
-    });
-  }
-
-  function refreshRooms() {
-    connectSocket(() => {
-      ws.send(JSON.stringify({
-        type: "listRooms"
-      }));
-    });
-  }
-
-  function renderRoomList() {
-    const list = document.getElementById("roomList");
-    if (!list) return;
-
-    if (roomList.length === 0) {
-      list.innerHTML = `<div class="roomItem"><div class="roomMeta">열린 방 없음</div></div>`;
-      return;
-    }
-
-    list.innerHTML = roomList.map(room => {
-      const id = room.id || room.roomId;
-      const title = room.name || room.roomName || id;
-      const locked = !!(room.hasPassword || room.locked);
-
-      return `
-        <div class="roomItem">
-          <div class="roomTitle">${escapeHtml(title)}</div>
-          <div class="roomMeta">
-            방 코드: ${escapeHtml(id)}<br>
-            ${locked ? "🔒 비공개방" : "공개방"} / ${room.players || 0}/${room.maxPlayers || 2}
-          </div>
-          <div class="roomBtns">
-            <button onclick="Game.openJoinRoom('${escapeHtml(id)}', ${locked ? "true" : "false"})">입장</button>
-          </div>
-        </div>
-      `;
-    }).join("");
-  }
-
-  function openJoinRoom(id, locked) {
-    pendingJoinRoomId = id;
-
-    const modal = document.getElementById("joinModal");
-    const input = document.getElementById("joinPasswordInput");
-    const title = document.getElementById("joinTitle");
-
-    if (title) title.textContent = locked ? "비공개 방 입장" : "방 입장";
-
-    if (input) {
-      input.value = "";
-      input.classList.toggle("hidden", !locked);
-    }
-
-    if (modal) {
-      modal.classList.remove("hidden");
-    } else {
-      joinOnlineById(id, "");
-    }
-  }
-
-  function closeJoinModal() {
-    pendingJoinRoomId = null;
-    document.getElementById("joinModal")?.classList.add("hidden");
-  }
-
-  function confirmJoinRoom() {
-    if (!pendingJoinRoomId) {
-      closeJoinModal();
-      return;
-    }
-
-    const password = document.getElementById("joinPasswordInput")?.value || "";
-    const id = pendingJoinRoomId;
-    closeJoinModal();
-    joinOnlineById(id, password);
-  }
-
-  function joinOnlineById(id, password = "") {
-    localMode = false;
-    roomCode = id;
-
-    connectSocket(() => {
-      ws.send(JSON.stringify({
-        type: "joinRoom",
-        roomId: id,
-        password,
-        user: currentUser
-      }));
-    });
-  }
-
-  function closeAllCardModals() {
-    document.getElementById("necroModal")?.classList.add("hidden");
-    document.getElementById("exorcismModal")?.classList.add("hidden");
-    document.getElementById("reactionaryModal")?.classList.add("hidden");
-    document.getElementById("spaceModal")?.classList.add("hidden");
-  }
-
-  function cancelCardSelection() {
-    closeAllCardModals();
-
-    pendingCardUse = null;
-    cardState.activeMode = null;
-    cardState.selectedSquares = [];
-
-    selected = null;
-    moves = [];
-
-    renderCard();
-    render();
-  }
-
-  function resetState() {
-    board = createBoard();
-    turn = "white";
-    selected = null;
-    moves = [];
-    enPassant = null;
-
-    moved = {
-      wk: false,
-      wrA: false,
-      wrH: false,
-      bk: false,
-      brA: false,
-      brH: false
-    };
-
-    cardState = createCardState();
-    pendingCardUse = null;
-
-    equalityUses = {
-      white: 0,
-      black: 0
-    };
-
-    closeAllCardModals();
-  }
-
-  function syncCardUpdate(equalityUsed = false) {
-    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: "cardUpdate",
-        board,
-        turn,
-        enPassant,
-        moved,
-        necroCapturedPieces: cardState.necroCapturedPieces,
-        kingReturn: cardState.kingReturn,
-        reactionary: {
-          active: cardState.reactionaryActive,
-          rook: cardState.reactionaryRook,
-          checks: cardState.reactionaryChecks
-        },
-        spaceTravelEnabled: cardState.spaceTravelEnabled,
-        equalityUsed
-      }));
-    }
-  }
-
-  function consumeCurrentCard() {
-    const usedCard = pendingCardUse || myCard;
-    if (!usedCard) return;
-
-    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: "card",
-        card: usedCard
-      }));
-    }
-
-    if (usedCard === myCard) {
-      myCard = null;
-    }
-
-    pendingCardUse = null;
-    renderCard();
-  }
-
-  function showGame() {
-    document.getElementById("menu")?.classList.add("hidden");
-    document.getElementById("game")?.classList.remove("hidden");
-  }
-
-  function backMenu() {
-    removeGhost();
-    closeAllCardModals();
-    document.getElementById("game")?.classList.add("hidden");
-    document.getElementById("menu")?.classList.remove("hidden");
-    renderAccount();
-  }
-
-  function status(text) {
-    const el = document.getElementById("status");
-    if (el) el.textContent = text;
-  }
-
-  function startLocal() {
-    localMode = true;
-    myColor = null;
-    roomCode = null;
-    myCard = null;
-    resetState();
-    showGame();
-    renderCard();
-    render();
   }
 
   function resign() {
@@ -976,11 +426,7 @@ const Game = (() => {
         const legal = moves.find(m => m.r === r && m.c === c);
 
         if (legal) {
-          if (
-            legal.type === "equalityCastle" ||
-            legal.type === "equalityCastleKing" ||
-            legal.type === "equalityCastleQueen"
-          ) {
+          if (legal.type === "equalityCastle") {
             cell.classList.add("equalityCastleMove");
           } else if (board[r][c] || legal.type === "enPassant") {
             cell.classList.add("capture");
@@ -991,32 +437,44 @@ const Game = (() => {
 
         if (cardState.activeMode === "equalityPickA") {
           const piece = board[r]?.[c];
-          if (piece && piece[0] === turn[0]) cell.classList.add("equalityCastleMove");
+          if (piece && piece[0] === turn[0]) {
+            cell.classList.add("equalityCastleMove");
+          }
         }
 
         if (cardState.activeMode === "equalityPickB") {
           const targets = getEqualityTargets();
-          if (targets.some(pos => pos.r === r && pos.c === c)) cell.classList.add("equalityCastleMove");
+          if (targets.some(pos => pos.r === r && pos.c === c)) {
+            cell.classList.add("equalityCastleMove");
+          }
         }
 
         if (cardState.activeMode === "exorcism") {
           const bishops = getExorcismBishopOptions();
-          if (bishops.some(pos => pos.r === r && pos.c === c)) cell.classList.add("exorcismCandidate");
+          if (bishops.some(pos => pos.r === r && pos.c === c)) {
+            cell.classList.add("exorcismCandidate");
+          }
         }
 
         if (cardState.activeMode === "reactionaryPick") {
           const rooks = getReactionaryRookOptions();
-          if (rooks.some(pos => pos.r === r && pos.c === c)) cell.classList.add("reactionaryCandidate");
+          if (rooks.some(pos => pos.r === r && pos.c === c)) {
+            cell.classList.add("reactionaryCandidate");
+          }
         }
 
         if (cardState.activeMode === "spacePick") {
           const targets = getSpaceTravelPieces();
-          if (targets.some(pos => pos.r === r && pos.c === c)) cell.classList.add("spaceCandidate");
+          if (targets.some(pos => pos.r === r && pos.c === c)) {
+            cell.classList.add("spaceCandidate");
+          }
         }
 
         if (cardState.activeMode === "necroPlace") {
           const places = getNecroPlaceMoves();
-          if (places.some(pos => pos.r === r && pos.c === c)) cell.classList.add("necroPlaceCandidate");
+          if (places.some(pos => pos.r === r && pos.c === c)) {
+            cell.classList.add("necroPlaceCandidate");
+          }
         }
 
         if (cardState.reactionaryActive && cardState.reactionaryRook) {
@@ -1044,7 +502,9 @@ const Game = (() => {
             cardState.activeMode === "necroPlace" ||
             cardState.activeMode === "equalityPickA" ||
             cardState.activeMode === "equalityPickB"
-          ) return;
+          ) {
+            return;
+          }
 
           if (!canSelect(r, c)) return;
 
@@ -2402,81 +1862,15 @@ const Game = (() => {
     `;
   }
 
-  window.addEventListener("load", () => {
-  renderAccount();
-
-  getRedirectResult(auth)
-    .then(async result => {
-      console.log("REDIRECT RESULT:", result);
-
-      if (result && result.user) {
-        await applyGoogleUser(result.user);
-        setLoginState((result.user.displayName || result.user.email || "Google User") + " 로그인됨");
-        alert((result.user.displayName || result.user.email || "Google User") + " 로그인됨");
-      } else {
-        console.log("redirect result 없음");
-      }
-    })
-    .catch(err => {
-      console.error("REDIRECT ERROR:", err);
-      alert("구글 로그인 결과 처리 실패: " + err.code + "\n" + err.message);
-    });
-
-  const savedName = localStorage.getItem("randomChessGuestName");
-  const nick = document.getElementById("nickInput");
-
-  if (savedName && nick) {
-    nick.value = savedName;
-  }
-
-  const params = new URLSearchParams(location.search);
-  const room = params.get("room");
-
-  if (room) {
-    pendingJoinRoomId = room;
-    openJoinRoom(room, false);
-  }
-});
-
-    const savedName = localStorage.getItem("randomChessGuestName");
-    const nick = document.getElementById("nickInput");
-
-    if (savedName && nick) {
-      nick.value = savedName;
-    }
-
-    const params = new URLSearchParams(location.search);
-    const room = params.get("room");
-
-    if (room) {
-      pendingJoinRoomId = room;
-      openJoinRoom(room, false);
-    }
-  });
-
   return {
     startLocal,
-    createOnlineRoom,
-    refreshRooms,
-    openJoinRoom,
-    confirmJoinRoom,
-    closeJoinModal,
+    makeRoom,
+    joinOnline,
     backMenu,
     resign,
-    copyInvite,
     choosePromotion,
     activateCard,
     activateSpaceTravel,
-
-    loginGoogle,
-    logout,
-    loginNickname,
-
-    addFriend,
-    refreshFriends,
-    acceptFriend,
-    rejectFriend,
-    inviteFriend,
 
     cancelCardSelection,
     chooseExorcismBishop,
