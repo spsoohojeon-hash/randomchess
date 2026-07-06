@@ -1,4 +1,4 @@
-const CACHE_NAME = "randomchess-v42";
+const CACHE_NAME = "randomchess-v50";
 
 const FILES_TO_CACHE = [
   "/",
@@ -6,7 +6,6 @@ const FILES_TO_CACHE = [
   "/style.css",
   "/app.js",
   "/cards.js",
-  "/firebase-config.js",
   "/manifest.json",
   "/icon-192.png",
   "/icon-512.png"
