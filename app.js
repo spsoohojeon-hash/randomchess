@@ -247,7 +247,7 @@ const Game = (() => {
     const input = document.getElementById("roomInput")?.value.trim().toUpperCase();
 
     if (!input) {
-      alert("방 코드를 입력해라.");
+      alert("방 코드 입력");
       return;
     }
 
