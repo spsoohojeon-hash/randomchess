@@ -1613,7 +1613,7 @@ const Game = (() => {
       alert(`왕의 귀환 발동! 점수 ${score}, 강화 없음`);
     }
 
-    turn = turn === "white" ? "black" : "white";
+  
   }
 
   function activateCard() {
