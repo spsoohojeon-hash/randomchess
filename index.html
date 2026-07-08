@@ -91,7 +91,44 @@
   </div>
 </div>
 
-<script type="module" src="app.js?v=50"></script>
+<div id="choiceResultModal" class="hidden modal cardSelectModal">
+  <div class="promoBox">
+    <h3 id="choiceResultTitle">선택</h3>
+    <p id="choiceResultDesc" class="modalDesc">
+      결과를 선택하세요.
+    </p>
+    <button onclick="Game.chooseResultOption('opponentWin')">상대 승리</button>
+    <button onclick="Game.chooseResultOption('opponentLose')">상대 패배</button>
+  </div>
+</div>
+
+<div id="quickDuelModal" class="hidden modal cardSelectModal">
+  <div class="promoBox">
+    <h3>속전속결 - 묵찌빠</h3>
+    <p id="quickDuelStatus" class="modalDesc">
+      3판 2선승제입니다.
+    </p>
+
+    <div class="quickDuelButtons">
+      <button onclick="Game.chooseQuickDuel('rock')">묵</button>
+      <button onclick="Game.chooseQuickDuel('scissors')">찌</button>
+      <button onclick="Game.chooseQuickDuel('paper')">빠</button>
+    </div>
+  </div>
+</div>
+
+<div id="undoMoveModal" class="hidden modal cardSelectModal">
+  <div class="promoBox">
+    <h3 id="undoMoveTitle">무르기</h3>
+    <p id="undoMoveDesc" class="modalDesc">
+      수를 무르겠습니까?
+    </p>
+    <button onclick="Game.confirmUndoMove()">무르기</button>
+    <button onclick="Game.closeUndoMoveModal()">취소</button>
+  </div>
+</div>
+
+<script type="module" src="app.js?v=60"></script>
 
 <script>
   if ("serviceWorker" in navigator) {
