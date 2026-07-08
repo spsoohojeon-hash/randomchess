@@ -212,7 +212,7 @@ function createRoom() {
 }
 
 function send(ws, data) {
-  if (ws.readyState === ws.OPEN) {
+  if (ws && ws.readyState === 1) {
     ws.send(JSON.stringify(data));
   }
 }
