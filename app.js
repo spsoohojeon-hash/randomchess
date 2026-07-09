@@ -7,79 +7,58 @@ import {
   getCardDescription
 } from "./cards.js";
 
-window.onerror = function(msg, src, line, col, err) {
-  alert("에러: " + msg + "\nline: " + line);
-};
+window.onerror = (msg, src, line) => alert("에러: " + msg + "\nline: " + line);
 
 const Game = (() => {
   const SERVER = "wss://randomchess.onrender.com";
 
   let ws = null;
-
   let board = [];
   let turn = "white";
   let selected = null;
   let moves = [];
-
   let localMode = true;
   let myColor = null;
   let roomCode = null;
-
   let enPassant = null;
-  let touchFrom = null;
-  let ghost = null;
-  let promotionResolve = null;
-
   let myCard = null;
   let cardState = createCardState();
   let pendingCardUse = null;
-
   let pendingUndoType = null;
-
-  let quickDuelState = null;
+  let promotionResolve = null;
   let resultChoiceState = null;
-
+  let quickDuelState = null;
   let moveHistory = [];
-  let forbiddenMove = {
-    white: null,
-    black: null
-  };
+  let forbiddenMove = { white: null, black: null };
 
-  let moved = {
-    wk: false,
-    wrA: false,
-    wrH: false,
-    bk: false,
-    brA: false,
-    brH: false
-  };
-
-  let equalityUses = {
-    white: 0,
-    black: 0
-  };
+  let moved = { wk:false, wrA:false, wrH:false, bk:false, brA:false, brH:false };
+  let equalityUses = { white:0, black:0 };
 
   const imgs = {
-    wp: "https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wp.png",
-    wr: "https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wr.png",
-    wn: "https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wn.png",
-    wb: "https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wb.png",
-    wq: "https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wq.png",
-    wk: "https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wk.png",
-
-    bp: "https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bp.png",
-    br: "https://images.chesscomfiles.com/chess-themes/pieces/neo/150/br.png",
-    bn: "https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bn.png",
-    bb: "https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bb.png",
-    bq: "https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bq.png",
-    bk: "https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bk.png"
+    wp:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wp.png",
+    wr:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wr.png",
+    wn:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wn.png",
+    wb:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wb.png",
+    wq:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wq.png",
+    wk:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/wk.png",
+    bp:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bp.png",
+    br:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/br.png",
+    bn:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bn.png",
+    bb:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bb.png",
+    bq:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bq.png",
+    bk:"https://images.chesscomfiles.com/chess-themes/pieces/neo/150/bk.png"
   };
 
-  function clone(obj) {
-    return JSON.parse(JSON.stringify(obj));
-  }
+  function clone(x){ return JSON.parse(JSON.stringify(x)); }
+  function opp(c){ return c === "white" ? "black" : "white"; }
+  function pref(c){ return c === "white" ? "w" : "b"; }
+  function pcolor(p){ return !p ? null : p[0] === "w" ? "white" : "black"; }
+  function sq(r,c){ return `${String.fromCharCode(97+c)}${8-r}`; }
+  function sameSq(a,b){ return a && b && a.r === b.r && a.c === b.c; }
+  function sameMove(a,b){ return a && b && sameSq(a.from,b.from) && sameSq(a.to,b.to); }
+  function pname(p){ return ({p:"폰",r:"룩",n:"나이트",b:"비숍",q:"퀸",k:"킹"})[p?.[1]] || "기물"; }
 
-  function createBoard() {
+  function createBoard(){
     return [
       ["br","bn","bb","bq","bk","bb","bn","br"],
       ["bp","bp","bp","bp","bp","bp","bp","bp"],
@@ -92,2658 +71,573 @@ const Game = (() => {
     ];
   }
 
-  function squareName(r, c) {
-    return `${String.fromCharCode(97 + c)}${8 - r}`;
+  function setStatus(t){ const el=document.getElementById("status"); if(el) el.textContent=t; }
+  function showGame(){ document.getElementById("menu")?.classList.add("hidden"); document.getElementById("game")?.classList.remove("hidden"); }
+  function backMenu(){ closeAllCardModals(); document.getElementById("game")?.classList.add("hidden"); document.getElementById("menu")?.classList.remove("hidden"); }
+
+  function closeAllCardModals(){
+    ["promotionModal","necroModal","exorcismModal","reactionaryModal","spaceModal","choiceResultModal","quickDuelModal","undoMoveModal"].forEach(id=>document.getElementById(id)?.classList.add("hidden"));
   }
 
-  function colorNameByPiece(piece) {
-    if (!piece) return null;
-    return piece[0] === "w" ? "white" : "black";
+  function resetState(){
+    board=createBoard(); turn="white"; selected=null; moves=[]; enPassant=null;
+    myCard=null; cardState=createCardState(); pendingCardUse=null; pendingUndoType=null;
+    resultChoiceState=null; quickDuelState=null; moveHistory=[];
+    forbiddenMove={white:null,black:null};
+    moved={wk:false,wrA:false,wrH:false,bk:false,brA:false,brH:false};
+    equalityUses={white:0,black:0}; closeAllCardModals();
   }
 
-  function colorPrefix(color) {
-    return color === "white" ? "w" : "b";
+  function randomLocalCard(){
+    const ids=["fiveAhead","bombLauncher","noThatMove","extremeEfficiency","quickDuel","queenRule","temusanTimeStone","versatile","conscienceTest","necro","wildHorse","spaceTravel","doubleMove","equality","reactionary","exorcism","kingReturn"];
+    return ids[Math.floor(Math.random()*ids.length)];
   }
 
-  function opposite(color) {
-    return color === "white" ? "black" : "white";
-  }
-
-  function pieceName(piece) {
-    const names = {
-      p: "폰",
-      r: "룩",
-      n: "나이트",
-      b: "비숍",
-      q: "퀸",
-      k: "킹"
-    };
-
-    return names[piece?.[1]] || "알 수 없는 기물";
-  }
-
-  function sameSquare(a, b) {
-    return a && b && a.r === b.r && a.c === b.c;
-  }
-
-  function sameMove(a, b) {
-    if (!a || !b) return false;
-    return sameSquare(a.from, b.from) && sameSquare(a.to, b.to);
-  }
-
-  function status(text) {
-    const el = document.getElementById("status");
-    if (el) el.textContent = text;
-  }
-
-  function showGame() {
-    document.getElementById("menu")?.classList.add("hidden");
-    document.getElementById("game")?.classList.remove("hidden");
-  }
-
-  function backMenu() {
-    removeGhost();
-    closeAllCardModals();
-
-    document.getElementById("game")?.classList.add("hidden");
-    document.getElementById("menu")?.classList.remove("hidden");
-  }
-
-  function closeAllCardModals() {
-    document.getElementById("necroModal")?.classList.add("hidden");
-    document.getElementById("exorcismModal")?.classList.add("hidden");
-    document.getElementById("reactionaryModal")?.classList.add("hidden");
-    document.getElementById("spaceModal")?.classList.add("hidden");
-    document.getElementById("choiceResultModal")?.classList.add("hidden");
-    document.getElementById("quickDuelModal")?.classList.add("hidden");
-    document.getElementById("undoMoveModal")?.classList.add("hidden");
-  }
-
-  function cancelCardSelection() {
-    closeAllCardModals();
-
-    pendingCardUse = null;
-    pendingUndoType = null;
-
-    cardState.activeMode = null;
-    cardState.selectedSquares = [];
-
-    selected = null;
-    moves = [];
-
-    renderCard();
-    render();
-  }
-
-  function resetState() {
-    board = createBoard();
-    turn = "white";
-
-    selected = null;
-    moves = [];
-
-    enPassant = null;
-    touchFrom = null;
-
-    myCard = null;
-    cardState = createCardState();
-    pendingCardUse = null;
-    pendingUndoType = null;
-
-    quickDuelState = null;
-    resultChoiceState = null;
-
-    moveHistory = [];
-
-    forbiddenMove = {
-      white: null,
-      black: null
-    };
-
-    moved = {
-      wk: false,
-      wrA: false,
-      wrH: false,
-      bk: false,
-      brA: false,
-      brH: false
-    };
-
-    equalityUses = {
-      white: 0,
-      black: 0
-    };
-
-    closeAllCardModals();
-  }
-
-  function applyExtremeEfficiency(color) {
-    const p = colorPrefix(color);
-    const row = color === "white" ? 7 : 0;
-
-    for (let r = 0; r < 8; r++) {
-      for (let c = 0; c < 8; c++) {
-        const piece = board[r][c];
-
-        if (!piece) continue;
-        if (piece[0] !== p) continue;
-
-        if (piece[1] !== "k" && piece[1] !== "q") {
-          board[r][c] = "";
-        }
-      }
+  function applyExtremeEfficiency(color){
+    const p=pref(color), row=color==="white"?7:0;
+    for(let r=0;r<8;r++) for(let c=0;c<8;c++){
+      const pc=board[r][c];
+      if(pc && pc[0]===p && pc[1]!=="k" && pc[1]!=="q") board[r][c]="";
     }
-
-    board[row][0] = p + "q";
-    board[row][3] = p + "q";
-    board[row][4] = p + "k";
-    board[row][7] = p + "q";
-
-    cardState.extremeEfficiencyActive = true;
+    board[row][0]=p+"q"; board[row][3]=p+"q"; board[row][4]=p+"k"; board[row][7]=p+"q";
+    cardState.extremeEfficiencyActive=true;
   }
 
-  function applyLocalStartPassive() {
-    if (myCard === "extremeEfficiency") {
-      applyExtremeEfficiency("white");
-    }
-
-    if (myCard === "versatile") {
-      cardState.versatileActive = true;
-    }
-
-    if (myCard === "fiveAhead") {
-      openResultChoiceModal({
-        card: "fiveAhead",
-        owner: "white",
-        chooser: "black",
-        local: true
-      });
-    }
-
-    if (myCard === "conscienceTest") {
-      openResultChoiceModal({
-        card: "conscienceTest",
-        owner: "white",
-        chooser: "black",
-        local: true
-      });
-    }
+  function applyLocalPassives(){
+    if(myCard==="extremeEfficiency") applyExtremeEfficiency("white");
+    if(myCard==="versatile") cardState.versatileActive=true;
+    if(myCard==="fiveAhead") openResultChoiceModal({card:"fiveAhead",owner:"white",chooser:"black",local:true});
+    if(myCard==="conscienceTest") openResultChoiceModal({card:"conscienceTest",owner:"white",chooser:"black",local:true});
   }
 
-  function startLocal() {
-    localMode = true;
-    myColor = null;
-    roomCode = null;
-
-    resetState();
-
-    myCard = randomLocalCard();
-
-    applyLocalStartPassive();
-
-    showGame();
-    renderCard();
-    render();
+  function startLocal(){
+    localMode=true; myColor=null; roomCode=null; resetState(); myCard=randomLocalCard(); applyLocalPassives(); showGame(); renderCard(); render();
   }
 
-  function randomLocalCard() {
-    const ids = [
-      "fiveAhead",
-      "bombLauncher",
-      "noThatMove",
-      "extremeEfficiency",
-      "quickDuel",
-      "queenRule",
-      "temusanTimeStone",
-      "versatile",
-      "conscienceTest",
-      "necro",
-      "wildHorse",
-      "spaceTravel",
-      "doubleMove",
-      "equality",
-      "reactionary",
-      "exorcism",
-      "kingReturn"
-    ];
-
-    return ids[Math.floor(Math.random() * ids.length)];
+  function connectSocket(onOpen){
+    if(ws && ws.readyState===WebSocket.OPEN){ onOpen?.(); return; }
+    if(ws){ try{ws.close();}catch{} }
+    ws=new WebSocket(SERVER);
+    ws.onopen=()=>onOpen?.();
+    ws.onerror=err=>{ console.log("WebSocket error",err); alert("서버 연결 에러"); };
+    ws.onclose=()=>console.log("서버 연결 끊김");
+    ws.onmessage=e=>handleServerMessage(JSON.parse(e.data));
   }
 
-  function connectSocket(onOpen) {
-    if (ws && ws.readyState === WebSocket.OPEN) {
-      onOpen?.();
+  function makeRoom(){
+    const code=Math.random().toString(36).substring(2,8).toUpperCase();
+    const input=document.getElementById("roomInput"); if(input) input.value=code;
+    alert("방 코드: "+code); localMode=false; roomCode=code;
+    connectSocket(()=>ws.send(JSON.stringify({type:"join",roomId:code})));
+  }
+
+  function joinOnline(){
+    const code=document.getElementById("roomInput")?.value.trim().toUpperCase();
+    if(!code){ alert("방 코드를 입력해라."); return; }
+    localMode=false; roomCode=code;
+    connectSocket(()=>ws.send(JSON.stringify({type:"join",roomId:code})));
+  }
+
+  function handleServerMessage(d){
+    if(d.type==="waiting"){
+      showGame(); setStatus(d.message||"상대 기다리는 중...");
+      const bd=document.getElementById("board"); if(bd) bd.innerHTML="";
       return;
     }
-
-    if (ws) {
-      try {
-        ws.close();
-      } catch {}
+    if(d.type==="start"){
+      myCard=d.card; myColor=d.color; board=d.board; turn=d.turn; enPassant=d.enPassant||null; moved=d.moved||moved;
+      cardState=createCardState();
+      if(d.capturedPieces) cardState.necroCapturedPieces=d.capturedPieces;
+      cardState.spaceTravelEnabled=!!d.spaceTravelEnabled;
+      cardState.bombLauncherUsed=!!d.bombLauncherUsed;
+      cardState.noThatMoveUses=d.noThatMoveUses??2;
+      cardState.temusanTimeStoneUses=d.temusanTimeStoneUses??2;
+      cardState.queenRuleActive=!!d.queenRuleActive;
+      cardState.versatileActive=!!d.versatileActive;
+      cardState.extremeEfficiencyActive=!!d.extremeEfficiencyActive;
+      if(d.equalityUses) equalityUses=d.equalityUses;
+      showGame(); renderCard(); render(); return;
     }
-
-    ws = new WebSocket(SERVER);
-
-    ws.onopen = () => {
-      onOpen?.();
-    };
-
-    ws.onerror = () => {
-      alert("서버 연결 에러");
-    };
-
-    ws.onclose = () => {
-      console.log("서버 연결 끊김");
-    };
-
-    ws.onmessage = e => {
-      const data = JSON.parse(e.data);
-      handleServerMessage(data);
-    };
+    if(d.type==="update"){
+      board=d.board; turn=d.turn; enPassant=d.enPassant||null; moved=d.moved||moved;
+      if(d.doubleMove&&myColor){ cardState.doubleMoveLeft=d.doubleMove[myColor]; cardState.doubleMoveActive=cardState.doubleMoveLeft>0; }
+      if(d.wildHorse&&myColor) cardState.wildHorse=d.wildHorse[myColor];
+      if(d.kingReturn&&myColor) cardState.kingReturn=d.kingReturn[myColor]||null;
+      if(d.capturedBy&&myColor) cardState.necroCapturedPieces=d.capturedBy[myColor]||[];
+      if(d.spaceTravel&&myColor) cardState.spaceTravelEnabled=!!d.spaceTravel[myColor];
+      if(d.equalityUses) equalityUses=d.equalityUses;
+      if(d.bombLauncherUsed&&myColor) cardState.bombLauncherUsed=!!d.bombLauncherUsed[myColor];
+      if(d.noThatMoveUses&&myColor) cardState.noThatMoveUses=d.noThatMoveUses[myColor];
+      if(d.temusanTimeStoneUses&&myColor) cardState.temusanTimeStoneUses=d.temusanTimeStoneUses[myColor];
+      if(d.queenRule&&myColor) cardState.queenRuleActive=!!d.queenRule[myColor];
+      if(d.versatile&&myColor) cardState.versatileActive=!!d.versatile[myColor];
+      if(d.extremeEfficiency&&myColor) cardState.extremeEfficiencyActive=!!d.extremeEfficiency[myColor];
+      if(d.forbiddenMove) forbiddenMove=d.forbiddenMove;
+      if(d.usedCards&&myColor&&d.usedCards[myColor]&&!keepAfterUse(myCard)) myCard=null;
+      selected=null; moves=[]; renderCard(); render(); return;
+    }
+    if(d.type==="resultChoiceRequest"){
+      openResultChoiceModal({card:d.card,owner:d.owner,chooser:d.chooser,title:d.title,message:d.message,local:false}); return;
+    }
+    if(d.type==="bombActivated"){ alert(`${d.owner}의 폭탄 발사대 발동!`); return; }
+    if(d.type==="moveUndone"){
+      alert(d.reason==="noThatMove"?"그 수 하지 마 발동!":"테무산 타임스톤 발동!"); return;
+    }
+    if(d.type==="quickDuelStart"){
+      quickDuelState={round:d.round||1,score:d.score||{white:0,black:0},picked:false}; openQuickDuelModal(); return;
+    }
+    if(d.type==="quickDuelPicked"){ updateQuickDuelStatus("선택 완료. 상대 선택 대기 중..."); return; }
+    if(d.type==="quickDuelRound"){
+      alert(`묵찌빠 ${d.round}라운드\n백: ${d.whiteText}\n흑: ${d.blackText}\n결과: ${d.roundWinner?d.roundWinner+" 승":"무승부"}`);
+      quickDuelState={round:d.round,score:d.score,picked:false};
+      updateQuickDuelStatus(`현재 스코어 - 백 ${d.score.white} : 흑 ${d.score.black}`); return;
+    }
+    if(d.type==="quickDuelNext"){
+      quickDuelState={round:d.round,score:d.score,picked:false};
+      updateQuickDuelStatus(`${d.round}라운드 선택하세요. 백 ${d.score.white} : 흑 ${d.score.black}`); return;
+    }
+    if(d.type==="gameover"){
+      board=d.board||board; closeAllCardModals(); render();
+      let reason="";
+      if(d.reason==="queenRule") reason="\n여왕 통치 룰로 퀸이 잡혔습니다.";
+      if(d.reason==="quickDuel") reason="\n속전속결 묵찌빠 승리.";
+      if(d.reason==="fiveAhead") reason="\n5수 앞 결과 적용.";
+      if(d.reason==="conscienceTest") reason="\n양심테스트 결과 적용.";
+      alert("게임 끝! 승자: "+d.winner+reason); return;
+    }
+    if(d.type==="full"){ alert("방이 가득 참"); return; }
+    if(d.type==="error") alert(d.message||"서버 오류");
   }
 
-  function makeRoom() {
-    const code = Math.random().toString(36).substring(2, 8).toUpperCase();
-    const input = document.getElementById("roomInput");
+  function keepAfterUse(card){
+    return ["equality","reactionary","spaceTravel","bombLauncher","versatile","extremeEfficiency","fiveAhead","conscienceTest"].includes(card);
+  }
 
-    if (input) input.value = code;
-
-    alert("방 코드: " + code);
-
-    localMode = false;
-    roomCode = code;
-
-    connectSocket(() => {
+  function syncCardUpdate(equalityUsed=false){
+    if(!localMode&&ws&&ws.readyState===WebSocket.OPEN){
       ws.send(JSON.stringify({
-        type: "join",
-        roomId: code
-      }));
-    });
-  }
-
-  function joinOnline() {
-    const input = document.getElementById("roomInput")?.value.trim().toUpperCase();
-
-    if (!input) {
-      alert("방 코드를 입력해라.");
-      return;
-    }
-
-    localMode = false;
-    roomCode = input;
-
-    connectSocket(() => {
-      ws.send(JSON.stringify({
-        type: "join",
-        roomId: input
-      }));
-    });
-  }
-
-  function handleServerMessage(data) {
-    if (data.type === "waiting") {
-      showGame();
-      status(data.message || "상대 기다리는 중...");
-
-      const boardDiv = document.getElementById("board");
-      if (boardDiv) boardDiv.innerHTML = "";
-
-      return;
-    }
-
-    if (data.type === "start") {
-      myCard = data.card;
-      myColor = data.color;
-
-      board = data.board;
-      turn = data.turn;
-
-      enPassant = data.enPassant || null;
-      moved = data.moved || moved;
-
-      cardState = createCardState();
-
-      if (data.capturedPieces) {
-        cardState.necroCapturedPieces = data.capturedPieces;
-      }
-
-      if (data.spaceTravelEnabled !== undefined) {
-        cardState.spaceTravelEnabled = data.spaceTravelEnabled;
-      }
-
-      if (data.equalityUses) {
-        equalityUses = data.equalityUses;
-      }
-
-      if (data.bombLauncherUsed !== undefined) {
-        cardState.bombLauncherUsed = data.bombLauncherUsed;
-      }
-
-      if (data.noThatMoveUses !== undefined) {
-        cardState.noThatMoveUses = data.noThatMoveUses;
-      }
-
-      if (data.temusanTimeStoneUses !== undefined) {
-        cardState.temusanTimeStoneUses = data.temusanTimeStoneUses;
-      }
-
-      if (data.queenRuleActive !== undefined) {
-        cardState.queenRuleActive = data.queenRuleActive;
-      }
-
-      if (data.versatileActive !== undefined) {
-        cardState.versatileActive = data.versatileActive;
-      }
-
-      if (data.extremeEfficiencyActive !== undefined) {
-        cardState.extremeEfficiencyActive = data.extremeEfficiencyActive;
-      }
-
-      showGame();
-      renderCard();
-      render();
-
-      return;
-    }
-
-    if (data.type === "update") {
-      board = data.board;
-      turn = data.turn;
-
-      enPassant = data.enPassant || null;
-      moved = data.moved || moved;
-
-      if (data.doubleMove && myColor) {
-        cardState.doubleMoveLeft = data.doubleMove[myColor];
-        cardState.doubleMoveActive = cardState.doubleMoveLeft > 0;
-      }
-
-      if (data.wildHorse && myColor) {
-        cardState.wildHorse = data.wildHorse[myColor];
-      }
-
-      if (data.kingReturn && myColor) {
-        cardState.kingReturn = data.kingReturn[myColor] || null;
-      }
-
-      if (data.reactionary && myColor) {
-        const mine = data.reactionary[myColor];
-
-        if (mine) {
-          cardState.reactionaryActive = mine.active;
-          cardState.reactionaryRook = mine.rook;
-          cardState.reactionaryChecks = mine.checks;
-        }
-      }
-
-      if (data.capturedBy && myColor) {
-        cardState.necroCapturedPieces = data.capturedBy[myColor] || [];
-      }
-
-      if (data.spaceTravel && myColor) {
-        cardState.spaceTravelEnabled = !!data.spaceTravel[myColor];
-      }
-
-      if (data.equalityUses) {
-        equalityUses = data.equalityUses;
-      }
-
-      if (data.bombLauncherUsed && myColor) {
-        cardState.bombLauncherUsed = !!data.bombLauncherUsed[myColor];
-      }
-
-      if (data.noThatMoveUses && myColor) {
-        cardState.noThatMoveUses = data.noThatMoveUses[myColor];
-      }
-
-      if (data.temusanTimeStoneUses && myColor) {
-        cardState.temusanTimeStoneUses = data.temusanTimeStoneUses[myColor];
-      }
-
-      if (data.queenRule && myColor) {
-        cardState.queenRuleActive = !!data.queenRule[myColor];
-      }
-
-      if (data.versatile && myColor) {
-        cardState.versatileActive = !!data.versatile[myColor];
-      }
-
-      if (data.extremeEfficiency && myColor) {
-        cardState.extremeEfficiencyActive = !!data.extremeEfficiency[myColor];
-      }
-
-      if (data.forbiddenMove) {
-        forbiddenMove = data.forbiddenMove;
-      }
-
-      if (
-        data.usedCards &&
-        myColor &&
-        data.usedCards[myColor] &&
-        myCard !== "equality" &&
-        myCard !== "reactionary" &&
-        myCard !== "spaceTravel" &&
-        myCard !== "bombLauncher" &&
-        myCard !== "versatile" &&
-        myCard !== "extremeEfficiency" &&
-        myCard !== "fiveAhead" &&
-        myCard !== "conscienceTest"
-      ) {
-        myCard = null;
-      }
-
-      selected = null;
-      moves = [];
-      removeGhost();
-
-      renderCard();
-      render();
-
-      return;
-    }
-
-    if (data.type === "resultChoiceRequest") {
-      openResultChoiceModal({
-        card: data.card,
-        owner: data.owner,
-        chooser: data.chooser,
-        title: data.title,
-        message: data.message,
-        local: false
-      });
-
-      return;
-    }
-
-    if (data.type === "bombActivated") {
-      alert(`${data.owner}의 폭탄 발사대 발동!`);
-      return;
-    }
-
-    if (data.type === "moveUndone") {
-      if (data.reason === "noThatMove") {
-        alert("그 수 하지 마 발동! 마지막 수가 무효화됨.");
-      } else if (data.reason === "temusanTimeStone") {
-        alert("테무산 타임스톤 발동! 수가 무효화됨.");
-      }
-
-      return;
-    }
-
-    if (data.type === "quickDuelStart") {
-      quickDuelState = {
-        round: data.round || 1,
-        score: data.score || { white: 0, black: 0 },
-        picked: false
-      };
-
-      openQuickDuelModal();
-      return;
-    }
-
-    if (data.type === "quickDuelPicked") {
-      quickDuelState.picked = true;
-      updateQuickDuelStatus("선택 완료. 상대 선택 대기 중...");
-      return;
-    }
-
-    if (data.type === "quickDuelRound") {
-      const winnerText = data.roundWinner ? `${data.roundWinner} 승` : "무승부";
-
-      alert(
-        `묵찌빠 ${data.round}라운드\n` +
-        `백: ${data.whiteText}\n` +
-        `흑: ${data.blackText}\n` +
-        `결과: ${winnerText}`
-      );
-
-      quickDuelState = {
-        round: data.round,
-        score: data.score,
-        picked: false
-      };
-
-      updateQuickDuelStatus(
-        `현재 스코어 - 백 ${data.score.white} : 흑 ${data.score.black}`
-      );
-
-      return;
-    }
-
-    if (data.type === "quickDuelNext") {
-      quickDuelState = {
-        round: data.round,
-        score: data.score,
-        picked: false
-      };
-
-      updateQuickDuelStatus(
-        `${data.round}라운드 선택하세요. 백 ${data.score.white} : 흑 ${data.score.black}`
-      );
-
-      return;
-    }
-
-    if (data.type === "reactionaryRequest") {
-      if (data.color) turn = data.color;
-
-      cardState.activeMode = "reactionaryPick";
-      selected = null;
-      moves = data.options || [];
-
-      alert(data.message || "킹이 잡혔습니다. 반동분자로 왕룩을 선택하세요.");
-
-      renderCard();
-      render();
-
-      return;
-    }
-
-    if (data.type === "gameover") {
-      board = data.board || board;
-      removeGhost();
-      closeAllCardModals();
-
-      render();
-
-      let reason = "";
-
-      if (data.reason === "queenRule") {
-        reason = "\n여왕 통치 룰로 퀸이 잡혔습니다.";
-      }
-
-      if (data.reason === "quickDuel") {
-        reason = "\n속전속결 묵찌빠 승리.";
-      }
-
-      if (data.reason === "fiveAhead") {
-        reason = "\n5수 앞 결과 적용.";
-      }
-
-      if (data.reason === "conscienceTest") {
-        reason = "\n양심테스트 결과 적용.";
-      }
-
-      alert("게임 끝! 승자: " + data.winner + reason);
-
-      return;
-    }
-
-    if (data.type === "full") {
-      alert("방이 가득 참");
-      return;
-    }
-
-    if (data.type === "error") {
-      alert(data.message || "서버 오류");
-    }
-  }
-    function syncCardUpdate(equalityUsed = false) {
-    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: "cardUpdate",
-        board,
-        turn,
-        enPassant,
-        moved,
-        necroCapturedPieces: cardState.necroCapturedPieces,
-        kingReturn: cardState.kingReturn,
-        reactionary: {
-          active: cardState.reactionaryActive,
-          rook: cardState.reactionaryRook,
-          checks: cardState.reactionaryChecks
-        },
-        spaceTravelEnabled: cardState.spaceTravelEnabled,
-        queenRuleActive: cardState.queenRuleActive,
-        versatileActive: cardState.versatileActive,
+        type:"cardUpdate", board, turn, enPassant, moved,
+        necroCapturedPieces:cardState.necroCapturedPieces,
+        kingReturn:cardState.kingReturn,
+        reactionary:{active:cardState.reactionaryActive,rook:cardState.reactionaryRook,checks:cardState.reactionaryChecks},
+        spaceTravelEnabled:cardState.spaceTravelEnabled,
+        queenRuleActive:cardState.queenRuleActive,
+        versatileActive:cardState.versatileActive,
         equalityUsed
       }));
     }
   }
 
-  function consumeCurrentCard() {
-    const usedCard = pendingCardUse || myCard;
-    if (!usedCard) return;
-
-    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: "card",
-        card: usedCard
-      }));
-    }
-
-    const keepCards = [
-      "equality",
-      "reactionary",
-      "spaceTravel",
-      "bombLauncher",
-      "versatile",
-      "extremeEfficiency",
-      "fiveAhead",
-      "conscienceTest"
-    ];
-
-    if (usedCard === myCard && !keepCards.includes(usedCard)) {
-      myCard = null;
-    }
-
-    pendingCardUse = null;
-    renderCard();
+  function consumeCurrentCard(){
+    const used=pendingCardUse||myCard; if(!used) return;
+    if(!localMode&&ws&&ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({type:"card",card:used}));
+    if(used===myCard&&!keepAfterUse(used)) myCard=null;
+    pendingCardUse=null; renderCard();
   }
 
-  function resign() {
-    const winner = turn === "white" ? "black" : "white";
-    alert("기권! 승자: " + winner);
+  function resign(){
+    const winner=turn==="white"?"black":"white"; alert("기권! 승자: "+winner);
+    if(!localMode&&ws&&ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({type:"resign"}));
+  }
 
-    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: "resign"
-      }));
+  function render(){
+    const div=document.getElementById("board"); if(!div) return; div.innerHTML="";
+    setStatus((localMode?"로컬 2인":`온라인 ${roomCode} / 내 색: ${myColor||"대기중"}`)+` | ${turn} 턴`);
+    for(let r=0;r<8;r++) for(let c=0;c<8;c++){
+      const cell=document.createElement("div");
+      cell.className="cell "+((r+c)%2===0?"light":"dark"); cell.dataset.r=r; cell.dataset.c=c;
+      if(selected&&selected.r===r&&selected.c===c) cell.classList.add("selected");
+      const legal=moves.find(m=>m.r===r&&m.c===c);
+      if(legal) cell.classList.add(board[r][c]?"capture":"move");
+      const pc=board[r][c];
+      if(pc){ const img=document.createElement("img"); img.src=imgs[pc]; cell.appendChild(img); }
+      cell.onclick=()=>clickCell(r,c); div.appendChild(cell);
     }
   }
 
-  function render() {
-    const boardDiv = document.getElementById("board");
-    if (!boardDiv) return;
-
-    boardDiv.innerHTML = "";
-
-    status(
-      (localMode ? "로컬 2인" : `온라인 ${roomCode} / 내 색: ${myColor || "대기중"}`)
-      + ` | ${turn} 턴`
-    );
-
-    for (let r = 0; r < 8; r++) {
-      for (let c = 0; c < 8; c++) {
-        const cell = document.createElement("div");
-        cell.className = "cell " + ((r + c) % 2 === 0 ? "light" : "dark");
-        cell.dataset.r = r;
-        cell.dataset.c = c;
-
-        if (selected && selected.r === r && selected.c === c) {
-          cell.classList.add("selected");
-        }
-
-        const legal = moves.find(m => m.r === r && m.c === c);
-
-        if (legal) {
-          if (legal.type === "equalityCastle") {
-            cell.classList.add("equalityCastleMove");
-          } else if (board[r][c] || legal.type === "enPassant") {
-            cell.classList.add("capture");
-          } else {
-            cell.classList.add("move");
-          }
-        }
-
-        if (cardState.activeMode === "equalityPickA") {
-          const piece = board[r]?.[c];
-          if (piece && piece[0] === turn[0]) {
-            cell.classList.add("equalityCastleMove");
-          }
-        }
-
-        if (cardState.activeMode === "equalityPickB") {
-          const targets = getEqualityTargets();
-          if (targets.some(pos => pos.r === r && pos.c === c)) {
-            cell.classList.add("equalityCastleMove");
-          }
-        }
-
-        if (cardState.activeMode === "exorcism") {
-          const bishops = getExorcismBishopOptions();
-          if (bishops.some(pos => pos.r === r && pos.c === c)) {
-            cell.classList.add("exorcismCandidate");
-          }
-        }
-
-        if (cardState.activeMode === "reactionaryPick") {
-          const rooks = getReactionaryRookOptions();
-          if (rooks.some(pos => pos.r === r && pos.c === c)) {
-            cell.classList.add("reactionaryCandidate");
-          }
-        }
-
-        if (cardState.activeMode === "spacePick") {
-          const targets = getSpaceTravelPieces();
-          if (targets.some(pos => pos.r === r && pos.c === c)) {
-            cell.classList.add("spaceCandidate");
-          }
-        }
-
-        if (cardState.activeMode === "necroPlace") {
-          const places = getNecroPlaceMoves();
-          if (places.some(pos => pos.r === r && pos.c === c)) {
-            cell.classList.add("necroPlaceCandidate");
-          }
-        }
-
-        if (cardState.reactionaryActive && cardState.reactionaryRook) {
-          if (cardState.reactionaryRook.r === r && cardState.reactionaryRook.c === c) {
-            cell.classList.add("selected");
-          }
-        }
-
-        const piece = board[r][c];
-
-        if (piece) {
-          const img = document.createElement("img");
-          img.src = imgs[piece];
-          cell.appendChild(img);
-        }
-
-        cell.onclick = () => clickCell(r, c);
-
-        cell.ontouchstart = ev => {
-          if (
-            cardState.activeMode === "exorcism" ||
-            cardState.activeMode === "reactionaryPick" ||
-            cardState.activeMode === "spacePick" ||
-            cardState.activeMode === "spacePlace" ||
-            cardState.activeMode === "necroPlace" ||
-            cardState.activeMode === "equalityPickA" ||
-            cardState.activeMode === "equalityPickB"
-          ) {
-            return;
-          }
-
-          if (!canSelect(r, c)) return;
-
-          ev.preventDefault();
-
-          selected = { r, c };
-          touchFrom = { r, c };
-          moves = getMoves(r, c);
-
-          render();
-
-          const pieceNow = board[r][c];
-
-          removeGhost();
-
-          ghost = document.createElement("img");
-          ghost.src = imgs[pieceNow];
-          ghost.className = "dragGhost";
-          document.body.appendChild(ghost);
-
-          const t = ev.touches[0];
-          moveGhost(t.clientX, t.clientY);
-        };
-
-        cell.ontouchmove = ev => {
-          if (!ghost) return;
-          ev.preventDefault();
-
-          const t = ev.touches[0];
-          moveGhost(t.clientX, t.clientY);
-        };
-
-        cell.ontouchend = ev => {
-          if (!touchFrom) return;
-
-          ev.preventDefault();
-
-          const t = ev.changedTouches[0];
-          const el = document.elementFromPoint(t.clientX, t.clientY);
-          const target = el?.closest(".cell");
-
-          removeGhost();
-
-          if (target) {
-            tryMove(touchFrom, {
-              r: Number(target.dataset.r),
-              c: Number(target.dataset.c)
-            });
-          }
-
-          touchFrom = null;
-        };
-
-        boardDiv.appendChild(cell);
-      }
-    }
-  }
-
-  function moveGhost(x, y) {
-    if (!ghost) return;
-    ghost.style.left = x + "px";
-    ghost.style.top = y + "px";
-  }
-
-  function removeGhost() {
-    if (ghost) {
-      ghost.remove();
-      ghost = null;
-    }
-  }
-
-  function canSelect(r, c) {
-    const piece = board[r]?.[c];
-
-    if (!piece) return false;
-    if (piece[0] !== turn[0]) return false;
-    if (!localMode && myColor && piece[0] !== myColor[0]) return false;
-
+  function canSelect(r,c){
+    const pc=board[r]?.[c];
+    if(!pc) return false;
+    if(pc[0]!==turn[0]) return false;
+    if(!localMode&&myColor&&pc[0]!==myColor[0]) return false;
     return true;
   }
 
-  function clickCell(r, c) {
-    if (cardState.activeMode === "equalityPickA") {
-      chooseEqualityFirst(r, c);
-      return;
-    }
-
-    if (cardState.activeMode === "equalityPickB") {
-      chooseEqualitySecond(r, c);
-      return;
-    }
-
-    if (cardState.activeMode === "reactionaryPick") {
-      chooseReactionaryRook(r, c);
-      return;
-    }
-
-    if (cardState.activeMode === "spacePick") {
-      chooseSpacePiece(r, c);
-      return;
-    }
-
-    if (cardState.activeMode === "spacePlace") {
-      placeSpaceTravel(r, c);
-      return;
-    }
-
-    if (cardState.activeMode === "necroPlace") {
-      placeNecro(r, c);
-      return;
-    }
-
-    if (cardState.activeMode === "exorcism") {
-      chooseExorcismBishop(r, c);
-      return;
-    }
-
-    if (!selected) {
-      if (!canSelect(r, c)) return;
-
-      selected = { r, c };
-      moves = getMoves(r, c);
-      render();
-      return;
-    }
-
-    tryMove(selected, { r, c });
+  function clickCell(r,c){
+    if(cardState.activeMode==="equalityPickA"){ chooseEqualityFirst(r,c); return; }
+    if(cardState.activeMode==="equalityPickB"){ chooseEqualitySecond(r,c); return; }
+    if(cardState.activeMode==="exorcism"){ chooseExorcismBishop(r,c); return; }
+    if(cardState.activeMode==="spacePick"){ chooseSpacePiece(r,c); return; }
+    if(cardState.activeMode==="spacePlace"){ placeSpaceTravel(r,c); return; }
+    if(cardState.activeMode==="necroPlace"){ placeNecro(r,c); return; }
+    if(!selected){ if(!canSelect(r,c)) return; selected={r,c}; moves=getMoves(r,c); render(); return; }
+    tryMove(selected,{r,c});
   }
 
-  async function tryMove(from, to) {
-    const attemptedMove = {
-      from,
-      to
-    };
-
-    const currentColor = turn;
-
-    if (sameMove(forbiddenMove[currentColor], attemptedMove)) {
-      alert("그 수 하지 마로 금지된 같은 수입니다.");
-      selected = null;
-      moves = [];
-      render();
-      return;
-    }
-
-    const legal = moves.find(m => m.r === to.r && m.c === to.c);
-
-    if (!legal) {
-      selected = null;
-      moves = [];
-      touchFrom = null;
-      render();
-      return;
-    }
-
-    let promoteTo = null;
-
-    const moving = board[from.r][from.c];
-    const target = board[to.r][to.c];
-
-    if (cardState.doubleMoveActive && cardState.doubleMoveLeft > 0 && target && target[1] === "k") {
-      alert("더블무브 중에는 킹을 잡을 수 없음");
-      selected = null;
-      moves = [];
-      touchFrom = null;
-      render();
-      return;
-    }
-
-    if (moving[1] === "p" && (to.r === 0 || to.r === 7)) {
-      promoteTo = await askPromotion();
-    }
-
-    if (localMode) {
-      saveMoveHistoryLocal(from, to, promoteTo);
-      applyMove(from, to, promoteTo);
-
-      selected = null;
-      moves = [];
-      touchFrom = null;
-
-      render();
-    } else if (ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: "move",
-        from,
-        to,
-        promoteTo
-      }));
-
-      selected = null;
-      moves = [];
-      touchFrom = null;
-
-      render();
-    }
+  async function tryMove(from,to){
+    if(sameMove(forbiddenMove[turn],{from,to})){ alert("그 수 하지 마로 금지된 같은 수입니다."); selected=null; moves=[]; render(); return; }
+    const legal=moves.find(m=>m.r===to.r&&m.c===to.c);
+    if(!legal){ selected=null; moves=[]; render(); return; }
+    const moving=board[from.r][from.c], target=board[to.r][to.c]; let promoteTo=null;
+    if(cardState.doubleMoveActive&&cardState.doubleMoveLeft>0&&target&&target[1]==="k"){ alert("더블무브 중에는 킹을 잡을 수 없음"); selected=null; moves=[]; render(); return; }
+    if(moving[1]==="p"&&(to.r===0||to.r===7)) promoteTo=await askPromotion();
+    if(localMode){ saveLocalHistory(from,to,promoteTo); applyMoveLocal(from,to,promoteTo); selected=null; moves=[]; render(); return; }
+    if(ws&&ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({type:"move",from,to,promoteTo}));
+    selected=null; moves=[]; render();
   }
 
-  function saveMoveHistoryLocal(from, to, promoteTo) {
-    moveHistory.push({
-      by: turn,
-      from: clone(from),
-      to: clone(to),
-      promoteTo: promoteTo || null,
-      beforeBoard: clone(board),
-      beforeTurn: turn,
-      beforeCardState: clone(cardState),
-      beforeMoved: clone(moved),
-      beforeEnPassant: clone(enPassant),
-      beforeEqualityUses: clone(equalityUses),
-      beforeForbiddenMove: clone(forbiddenMove)
-    });
+  function saveLocalHistory(from,to,promoteTo){
+    moveHistory.push({by:turn,from:clone(from),to:clone(to),promoteTo:promoteTo||null,beforeBoard:clone(board),beforeTurn:turn,beforeCardState:clone(cardState),beforeMoved:clone(moved),beforeEnPassant:clone(enPassant),beforeEqualityUses:clone(equalityUses),beforeForbiddenMove:clone(forbiddenMove)});
   }
 
-  function restoreLocalHistory(item) {
-    board = clone(item.beforeBoard);
-    turn = item.beforeTurn;
-    cardState = clone(item.beforeCardState);
-    moved = clone(item.beforeMoved);
-    enPassant = clone(item.beforeEnPassant);
-    equalityUses = clone(item.beforeEqualityUses);
-    forbiddenMove = clone(item.beforeForbiddenMove);
+  function restoreLocalHistory(h){
+    board=clone(h.beforeBoard); turn=h.beforeTurn; cardState=clone(h.beforeCardState); moved=clone(h.beforeMoved); enPassant=clone(h.beforeEnPassant); equalityUses=clone(h.beforeEqualityUses); forbiddenMove=clone(h.beforeForbiddenMove);
   }
 
-  function askPromotion() {
-    document.getElementById("promotionModal")?.classList.remove("hidden");
-
-    return new Promise(resolve => {
-      promotionResolve = resolve;
-    });
+  function applyMoveLocal(from,to,promoteTo){
+    const moving=board[from.r][from.c]; let captured=board[to.r][to.c];
+    updateMoved(moving,from); enPassant=null;
+    if(captured&&captured[0]!==moving[0]&&captured[1]!=="k") cardState.necroCapturedPieces.push(captured);
+    board[to.r][to.c]=moving; board[from.r][from.c]="";
+    if(moving[1]==="p"&&(to.r===0||to.r===7)) board[to.r][to.c]=moving[0]+(promoteTo||"q");
+    if(captured&&captured[0]!==moving[0]) maybeTriggerBombLocal(to.r,to.c,moving,captured);
+    if(captured&&isGameEndingCapture(captured)){ alert("게임 끝! 승자: "+turn); return; }
+    if(moving[1]==="k"&&cardState.kingReturn&&cardState.kingReturn.turns>0){ cardState.kingReturn.turns--; if(cardState.kingReturn.turns<=0) cardState.kingReturn=null; }
+    forbiddenMove[turn]=null; finishMoveTurn();
   }
 
-  function choosePromotion(piece) {
-    document.getElementById("promotionModal")?.classList.add("hidden");
+  function isGameEndingCapture(captured){ return cardState.queenRuleActive ? captured[1]==="q" : captured[1]==="k"; }
 
-    if (promotionResolve) {
-      const resolve = promotionResolve;
-      promotionResolve = null;
-      resolve(piece);
+  function maybeTriggerBombLocal(r,c,moving,captured){
+    if(myCard!=="bombLauncher"||cardState.bombLauncherUsed) return;
+    const myP=turn[0]; if(moving[0]!==myP&&captured[0]!==myP) return;
+    cardState.bombLauncherUsed=true; myCard=null;
+    for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){
+      const nr=r+dr,nc=c+dc; if(nr<0||nr>7||nc<0||nc>7) continue;
+      const pc=board[nr][nc]; if(!pc||pc[1]==="k") continue; board[nr][nc]="";
     }
-  }
-
-  function finishMoveTurn() {
-    if (cardState.doubleMoveLeft > 1) {
-      cardState.doubleMoveLeft--;
-    } else {
-      cardState.doubleMoveLeft = 0;
-      cardState.doubleMoveActive = false;
-      turn = turn === "white" ? "black" : "white";
-    }
-  }
-
-  function applyMove(from, to, promoteTo) {
-    const moving = board[from.r][from.c];
-    let captured = board[to.r][to.c];
-
-    if (captured && captured[0] !== moving[0] && captured[1] !== "k") {
-      cardState.necroCapturedPieces.push(captured);
-    }
-
-    const legal = getMoves(from.r, from.c).find(m => m.r === to.r && m.c === to.c);
-
-    updateMoved(moving, from);
-    enPassant = null;
-
-    if (legal?.type === "enPassant") {
-      const capRow = moving[0] === "w" ? to.r + 1 : to.r - 1;
-      captured = board[capRow][to.c];
-
-      if (captured && captured[0] !== moving[0] && captured[1] !== "k") {
-        cardState.necroCapturedPieces.push(captured);
-      }
-
-      board[capRow][to.c] = "";
-    }
-
-    board[to.r][to.c] = moving;
-    board[from.r][from.c] = "";
-
-    if (legal?.type === "doublePawn") {
-      const dir = moving[0] === "w" ? -1 : 1;
-
-      enPassant = {
-        r: from.r + dir,
-        c: from.c
-      };
-    }
-
-    if (legal?.type === "castleKing") {
-      const row = moving[0] === "w" ? 7 : 0;
-      board[row][5] = board[row][7];
-      board[row][7] = "";
-    }
-
-    if (legal?.type === "castleQueen") {
-      const row = moving[0] === "w" ? 7 : 0;
-      board[row][3] = board[row][0];
-      board[row][0] = "";
-    }
-
-    if (moving[1] === "p" && (to.r === 0 || to.r === 7)) {
-      board[to.r][to.c] = moving[0] + (promoteTo || "q");
-    }
-
-    if (captured && captured[0] !== moving[0]) {
-      maybeTriggerBombLocal(to.r, to.c, moving, captured);
-    }
-
-    if (captured && isGameEndingCapture(captured)) {
-      alert("게임 끝! 승자: " + turn);
-      return;
-    }
-
-    if (moving[1] === "k" && cardState.kingReturn && cardState.kingReturn.turns > 0) {
-      cardState.kingReturn.turns--;
-
-      if (cardState.kingReturn.turns <= 0) {
-        cardState.kingReturn = null;
-      }
-    }
-
-    if (cardState.reactionaryActive && cardState.reactionaryRook) {
-      if (cardState.reactionaryRook.r === from.r && cardState.reactionaryRook.c === from.c) {
-        cardState.reactionaryRook = { r: to.r, c: to.c };
-      }
-
-      if (legal?.type === "castleKing") {
-        const row = moving[0] === "w" ? 7 : 0;
-
-        if (cardState.reactionaryRook.r === row && cardState.reactionaryRook.c === 7) {
-          cardState.reactionaryRook = { r: row, c: 5 };
-        }
-      }
-
-      if (legal?.type === "castleQueen") {
-        const row = moving[0] === "w" ? 7 : 0;
-
-        if (cardState.reactionaryRook.r === row && cardState.reactionaryRook.c === 0) {
-          cardState.reactionaryRook = { r: row, c: 3 };
-        }
-      }
-    }
-
-    forbiddenMove[turn] = null;
-    finishMoveTurn();
-  }
-
-  function isGameEndingCapture(captured) {
-    const capturedColor = colorNameByPiece(captured);
-
-    if (cardState.queenRuleActive && capturedColor === turn) {
-      return captured[1] === "q";
-    }
-
-    if (captured[1] === "k" && !cardState.queenRuleActive) {
-      return true;
-    }
-
-    return false;
-  }
-
-  function maybeTriggerBombLocal(r, c, moving, captured) {
-    if (myCard !== "bombLauncher") return;
-    if (cardState.bombLauncherUsed) return;
-
-    const myPrefix = localMode ? turn[0] : myColor?.[0];
-
-    if (!myPrefix) return;
-
-    const involved =
-      moving[0] === myPrefix ||
-      captured[0] === myPrefix;
-
-    if (!involved) return;
-
-    cardState.bombLauncherUsed = true;
-    myCard = null;
-
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        const nr = r + dr;
-        const nc = c + dc;
-
-        if (nr < 0 || nr > 7 || nc < 0 || nc > 7) continue;
-
-        const piece = board[nr][nc];
-
-        if (!piece) continue;
-        if (piece[1] === "k") continue;
-
-        board[nr][nc] = "";
-      }
-    }
-
     alert("폭탄 발사대 발동!");
   }
 
-  function updateMoved(piece, from) {
-    if (piece === "wk") moved.wk = true;
-    if (piece === "bk") moved.bk = true;
-
-    if (piece === "wr" && from.r === 7 && from.c === 0) moved.wrA = true;
-    if (piece === "wr" && from.r === 7 && from.c === 7) moved.wrH = true;
-    if (piece === "br" && from.r === 0 && from.c === 0) moved.brA = true;
-    if (piece === "br" && from.r === 0 && from.c === 7) moved.brH = true;
+  function finishMoveTurn(){
+    if(cardState.doubleMoveLeft>1) cardState.doubleMoveLeft--;
+    else { cardState.doubleMoveLeft=0; cardState.doubleMoveActive=false; turn=opp(turn); }
   }
 
-  function getMoves(r, c) {
-    const piece = board[r]?.[c];
-    if (!piece) return [];
+  function updateMoved(piece,from){
+    if(piece==="wk") moved.wk=true; if(piece==="bk") moved.bk=true;
+    if(piece==="wr"&&from.r===7&&from.c===0) moved.wrA=true;
+    if(piece==="wr"&&from.r===7&&from.c===7) moved.wrH=true;
+    if(piece==="br"&&from.r===0&&from.c===0) moved.brA=true;
+    if(piece==="br"&&from.r===0&&from.c===7) moved.brH=true;
+  }
 
-    const color = piece[0];
-    const type = piece[1];
-    const res = [];
-
-    const add = (nr, nc, kind = "normal") => {
-      if (nr < 0 || nr > 7 || nc < 0 || nc > 7) return;
-
-      if (!board[nr][nc] || board[nr][nc][0] !== color) {
-        res.push({ r: nr, c: nc, type: kind });
-      }
-    };
-
-    const slide = dirs => {
-      for (const [dr, dc] of dirs) {
-        let nr = r + dr;
-        let nc = c + dc;
-
-        while (nr >= 0 && nr < 8 && nc >= 0 && nc < 8) {
-          if (!board[nr][nc]) {
-            res.push({ r: nr, c: nc, type: "normal" });
-          } else {
-            if (board[nr][nc][0] !== color) {
-              res.push({ r: nr, c: nc, type: "normal" });
-            }
-            break;
-          }
-
-          nr += dr;
-          nc += dc;
-        }
-      }
-    };
-
-    if (type === "p") {
-      const dir = color === "w" ? -1 : 1;
-      const start = color === "w" ? 6 : 1;
-
-      if (!board[r + dir]?.[c]) add(r + dir, c);
-
-      if (r === start && !board[r + dir]?.[c] && !board[r + dir * 2]?.[c]) {
-        add(r + dir * 2, c, "doublePawn");
-      }
-
-      for (const dc of [-1, 1]) {
-        const target = board[r + dir]?.[c + dc];
-
-        if (target && target[0] !== color) add(r + dir, c + dc);
-
-        if (enPassant && enPassant.r === r + dir && enPassant.c === c + dc) {
-          res.push({ r: r + dir, c: c + dc, type: "enPassant" });
-        }
-      }
+  function getMoves(r,c){
+    const piece=board[r]?.[c]; if(!piece) return [];
+    const color=piece[0], type=piece[1], res=[];
+    const add=(nr,nc,t="normal")=>{ if(nr<0||nr>7||nc<0||nc>7) return; if(!board[nr][nc]||board[nr][nc][0]!==color) res.push({r:nr,c:nc,type:t}); };
+    const slide=dirs=>{ for(const [dr,dc] of dirs){ let nr=r+dr,nc=c+dc; while(nr>=0&&nr<8&&nc>=0&&nc<8){ if(!board[nr][nc]) res.push({r:nr,c:nc,type:"normal"}); else { if(board[nr][nc][0]!==color) res.push({r:nr,c:nc,type:"normal"}); break; } nr+=dr; nc+=dc; } } };
+    if(type==="p"){
+      const dir=color==="w"?-1:1, start=color==="w"?6:1;
+      if(!board[r+dir]?.[c]) add(r+dir,c);
+      if(r===start&&!board[r+dir]?.[c]&&!board[r+dir*2]?.[c]) add(r+dir*2,c,"doublePawn");
+      for(const dc of [-1,1]){ const t=board[r+dir]?.[c+dc]; if(t&&t[0]!==color) add(r+dir,c+dc); }
     }
-
-    if (type === "n") {
-      if (cardState.wildHorse) return getWildHorseMoves(r, c, board, color);
-
-      [
-        [2,1],[1,2],[-1,2],[-2,1],
-        [-2,-1],[-1,-2],[1,-2],[2,-1]
-      ].forEach(([dr, dc]) => add(r + dr, c + dc));
+    if(type==="n"){
+      if(cardState.wildHorse) return getWildHorseMoves(r,c,board,color);
+      [[2,1],[1,2],[-1,2],[-2,1],[-2,-1],[-1,-2],[1,-2],[2,-1]].forEach(([dr,dc])=>add(r+dr,c+dc));
     }
-
-    if (type === "b") {
-      slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
-    }
-
-    if (type === "r") {
-      if (cardState.versatileActive) {
-        return getVersatileRookMoves(r, c, board, color);
-      }
-
+    if(type==="b") slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
+    if(type==="r"){
+      if(cardState.versatileActive) return getVersatileRookMoves(r,c,board,color);
       slide([[1,0],[-1,0],[0,1],[0,-1]]);
     }
-
-    if (type === "q") {
-      if (cardState.queenRuleActive) {
-        for (let dr = -1; dr <= 1; dr++) {
-          for (let dc = -1; dc <= 1; dc++) {
-            if (dr || dc) add(r + dr, c + dc, "queenRuleKing");
-          }
-        }
-      } else {
-        slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
+    if(type==="q"){
+      if(cardState.queenRuleActive){ for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++) if(dr||dc) add(r+dr,c+dc,"queenRuleKing"); }
+      else slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
+    }
+    if(type==="k"){
+      if(cardState.queenRuleActive) slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
+      else for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++) if(dr||dc) add(r+dr,c+dc);
+      if(cardState.kingReturn&&cardState.kingReturn.turns>0){
+        const m=cardState.kingReturn.mode;
+        if(m==="bn"||m==="qn") [[2,1],[1,2],[-1,2],[-2,1],[-2,-1],[-1,-2],[1,-2],[2,-1]].forEach(([dr,dc])=>add(r+dr,c+dc,"kingReturnKnight"));
+        if(m==="bn") slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
+        if(m==="q"||m==="qn") slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
+      }
+      if(!cardState.queenRuleActive){
+        if(color==="w"&&r===7&&c===4&&!moved.wk){ if(!moved.wrH&&board[7][5]===""&&board[7][6]===""&&board[7][7]==="wr") add(7,6,"castleKing"); if(!moved.wrA&&board[7][1]===""&&board[7][2]===""&&board[7][3]===""&&board[7][0]==="wr") add(7,2,"castleQueen"); }
+        if(color==="b"&&r===0&&c===4&&!moved.bk){ if(!moved.brH&&board[0][5]===""&&board[0][6]===""&&board[0][7]==="br") add(0,6,"castleKing"); if(!moved.brA&&board[0][1]===""&&board[0][2]===""&&board[0][3]===""&&board[0][0]==="br") add(0,2,"castleQueen"); }
       }
     }
-
-    if (type === "k") {
-      if (cardState.queenRuleActive) {
-        slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
-      } else {
-        for (let dr = -1; dr <= 1; dr++) {
-          for (let dc = -1; dc <= 1; dc++) {
-            if (dr || dc) add(r + dr, c + dc);
-          }
-        }
-      }
-
-      if (cardState.kingReturn && cardState.kingReturn.turns > 0) {
-        const mode = cardState.kingReturn.mode;
-
-        const addKingReturnMove = (dr, dc) => {
-          const nr = r + dr;
-          const nc = c + dc;
-
-          if (nr < 0 || nr > 7 || nc < 0 || nc > 7) return;
-
-          const target = board[nr][nc];
-
-          if (!target || target[0] !== color) {
-            res.push({ r: nr, c: nc, type: "kingReturn" });
-          }
-        };
-
-        if (mode === "bn" || mode === "qn") {
-          [
-            [2,1],[1,2],[-1,2],[-2,1],
-            [-2,-1],[-1,-2],[1,-2],[2,-1]
-          ].forEach(([dr, dc]) => addKingReturnMove(dr, dc));
-        }
-
-        if (mode === "bn") {
-          slide([[1,1],[1,-1],[-1,1],[-1,-1]]);
-        }
-
-        if (mode === "q" || mode === "qn") {
-          slide([[1,0],[-1,0],[0,1],[0,-1],[1,1],[1,-1],[-1,1],[-1,-1]]);
-        }
-      }
-
-      if (!cardState.queenRuleActive) {
-        if (color === "w" && r === 7 && c === 4 && !moved.wk) {
-          if (!moved.wrH && board[7][5] === "" && board[7][6] === "" && board[7][7] === "wr") {
-            add(7, 6, "castleKing");
-          }
-
-          if (!moved.wrA && board[7][1] === "" && board[7][2] === "" && board[7][3] === "" && board[7][0] === "wr") {
-            add(7, 2, "castleQueen");
- 
-            function getEqualityTargets() {
-    if (cardState.activeMode !== "equalityPickB") return [];
-    if (!cardState.selectedSquares[0]) return [];
-
-    const from = cardState.selectedSquares[0];
-    const moving = board[from.r]?.[from.c];
-
-    if (!moving) return [];
-
-    const result = [];
-    const row = from.r;
-    const color = moving[0];
-
-    for (const dc of [-3, 3]) {
-      const targetC = from.c + dc;
-
-      if (targetC < 0 || targetC > 7) continue;
-
-      const target = board[row][targetC];
-
-      if (!target || target[0] !== color) continue;
-
-      const dir = Math.sign(dc);
-      const mid1 = board[row][from.c + dir];
-      const mid2 = board[row][from.c + dir * 2];
-
-      if (mid1 || mid2) continue;
-
-      result.push({
-        r: row,
-        c: targetC,
-        type: "equalityCastle"
-      });
-    }
-
-    return result;
+    return res;
   }
 
-  function chooseEqualityFirst(r, c) {
-    const piece = board[r]?.[c];
+  function askPromotion(){
+    document.getElementById("promotionModal")?.classList.remove("hidden");
+    return new Promise(resolve=>promotionResolve=resolve);
+  }
 
-    if (!piece || piece[0] !== turn[0]) {
-      alert("내 기물만 선택 가능합니다.");
-      return;
-    }
+  function choosePromotion(piece){
+    document.getElementById("promotionModal")?.classList.add("hidden");
+    if(promotionResolve){ const r=promotionResolve; promotionResolve=null; r(piece); }
+  }
 
-    cardState.selectedSquares = [{ r, c }];
-    cardState.activeMode = "equalityPickB";
+  function getEqualityTargets(){
+    if(cardState.activeMode!=="equalityPickB"||!cardState.selectedSquares[0]) return [];
+    const from=cardState.selectedSquares[0], moving=board[from.r]?.[from.c]; if(!moving) return [];
+    const out=[], row=from.r, color=moving[0];
+    for(const dc of [-3,3]){ const tc=from.c+dc; if(tc<0||tc>7) continue; const target=board[row][tc]; if(!target||target[0]!==color) continue; const dir=Math.sign(dc); if(board[row][from.c+dir]||board[row][from.c+dir*2]) continue; out.push({r:row,c:tc,type:"equalityCastle"}); }
+    return out;
+  }
 
-    selected = { r, c };
-    moves = getEqualityTargets();
-
-    if (moves.length === 0) {
-      alert("이 기물은 평등국가 캐슬링 가능한 상대 기물이 없습니다.");
-
-      cardState.activeMode = "equalityPickA";
-      cardState.selectedSquares = [];
-
-      selected = null;
-      moves = [];
-    }
-
+  function chooseEqualityFirst(r,c){
+    const pc=board[r]?.[c]; if(!pc||pc[0]!==turn[0]){ alert("내 기물만 선택 가능합니다."); return; }
+    cardState.selectedSquares=[{r,c}]; cardState.activeMode="equalityPickB"; selected={r,c}; moves=getEqualityTargets();
+    if(moves.length===0){ alert("이 기물은 평등국가 캐슬링 가능한 상대 기물이 없습니다."); cardState.activeMode="equalityPickA"; cardState.selectedSquares=[]; selected=null; moves=[]; }
     render();
   }
 
-  function chooseEqualitySecond(r, c) {
-    const from = cardState.selectedSquares[0];
-
-    if (!from) {
-      cardState.activeMode = "equalityPickA";
-      render();
-      return;
-    }
-
-    const targets = getEqualityTargets();
-    const ok = targets.some(pos => pos.r === r && pos.c === c);
-
-    if (!ok) {
-      alert("같은 가로줄에서 사이 빈칸 2칸인 내 기물만 선택 가능합니다.");
-      return;
-    }
-
-    applyEqualityCastleSpecial(from, { r, c });
-
-    const usedColor = turn;
-
-    cardState.activeMode = null;
-    cardState.selectedSquares = [];
-
-    selected = null;
-    moves = [];
-
-    equalityUses[usedColor]++;
-
-    if (equalityUses[usedColor] >= 10) {
-      if (localMode) {
-        alert("게임 끝! 승자: " + usedColor);
-        renderCard();
-        render();
-        return;
-      }
-
-      turn = turn === "white" ? "black" : "white";
-      syncCardUpdate(true);
-      renderCard();
-      render();
-      return;
-    }
-
-    turn = turn === "white" ? "black" : "white";
-
-    syncCardUpdate(true);
-    renderCard();
-    render();
+  function chooseEqualitySecond(r,c){
+    const from=cardState.selectedSquares[0]; if(!from) return;
+    const ok=getEqualityTargets().some(p=>p.r===r&&p.c===c); if(!ok){ alert("같은 가로줄에서 사이 빈칸 2칸인 내 기물만 선택 가능합니다."); return; }
+    const a=board[from.r][from.c], b=board[r][c], dir=Math.sign(c-from.c), aFinal=from.c+dir*2, bFinal=from.c+dir;
+    board[from.r][from.c]=""; board[r][c]=""; board[from.r][bFinal]=b; board[from.r][aFinal]=a;
+    const used=turn; cardState.activeMode=null; cardState.selectedSquares=[]; selected=null; moves=[]; equalityUses[used]++;
+    if(equalityUses[used]>=10){ alert("게임 끝! 승자: "+used); render(); return; }
+    turn=opp(turn); syncCardUpdate(true); renderCard(); render();
   }
 
-  function applyEqualityCastleSpecial(a, b) {
-    const row = a.r;
-    const pieceA = board[a.r][a.c];
-    const pieceB = board[b.r][b.c];
-    const dir = Math.sign(b.c - a.c);
-
-    const aFinalC = a.c + dir * 2;
-    const bFinalC = a.c + dir;
-
-    board[a.r][a.c] = "";
-    board[b.r][b.c] = "";
-
-    board[row][bFinalC] = pieceB;
-    board[row][aFinalC] = pieceA;
+  function getExorcismBishopOptions(){
+    const out=[], color=turn[0]; for(let r=0;r<8;r++) for(let c=0;c<8;c++) if(board[r][c]===color+"b") out.push({r,c}); return out;
   }
 
-  function getExorcismBishopOptions() {
-    const result = [];
-    const color = turn[0];
-
-    for (let r = 0; r < 8; r++) {
-      for (let c = 0; c < 8; c++) {
-        if (board[r][c] === color + "b") {
-          result.push({ r, c });
-        }
-      }
-    }
-
-    return result;
+  function showExorcismModal(){
+    const modal=document.getElementById("exorcismModal"), list=document.getElementById("exorcismList"), bishops=getExorcismBishopOptions();
+    if(bishops.length===0){ alert("사용할 수 있는 비숍이 없습니다."); return; }
+    list.innerHTML=""; bishops.forEach(pos=>{ const btn=document.createElement("button"); btn.className="selectBtn"; btn.textContent=`비숍 ${sq(pos.r,pos.c)}`; btn.onclick=()=>chooseExorcismBishop(pos.r,pos.c); list.appendChild(btn); });
+    cardState.activeMode="exorcism"; pendingCardUse=myCard; modal.classList.remove("hidden"); render();
   }
 
-  function showExorcismModal() {
-    const modal = document.getElementById("exorcismModal");
-    const list = document.getElementById("exorcismList");
-    const bishops = getExorcismBishopOptions();
-
-    if (bishops.length === 0) {
-      alert("사용할 수 있는 비숍이 없습니다.");
-      cancelCardSelection();
-      return;
+  function chooseExorcismBishop(r,c){
+    const pc=board[r]?.[c]; if(!pc||pc[0]!==turn[0]||pc[1]!=="b"){ alert("퇴마(물리)는 내 비숍만 사용할 수 있습니다."); return; }
+    const dir=pc[0]==="w"?-1:1;
+    for(let dc=-1;dc<=1;dc++){
+      const nr=r+dir,nc=c+dc; if(nr<0||nr>7||nc<0||nc>7) continue;
+      const target=board[nr][nc];
+      if(target&&isGameEndingCapture(target)){ alert("퇴마(물리)로 핵심 기물 제거! 승자: "+turn); board[nr][nc]=""; closeAllCardModals(); render(); return; }
+      board[nr][nc]="";
     }
-
-    if (!modal || !list) {
-      cardState.activeMode = "exorcism";
-      pendingCardUse = myCard;
-      selected = null;
-      moves = [];
-      render();
-      return;
-    }
-
-    list.innerHTML = "";
-
-    bishops.forEach(pos => {
-      const btn = document.createElement("button");
-      btn.className = "selectBtn";
-      btn.textContent = `비숍 ${squareName(pos.r, pos.c)}`;
-      btn.onclick = () => chooseExorcismBishop(pos.r, pos.c);
-      list.appendChild(btn);
-    });
-
-    cardState.activeMode = "exorcism";
-    pendingCardUse = myCard;
-
-    selected = null;
-    moves = [];
-
-    modal.classList.remove("hidden");
-    render();
+    closeAllCardModals(); cardState.activeMode=null; selected=null; moves=[]; turn=opp(turn); consumeCurrentCard(); syncCardUpdate(); renderCard(); render();
   }
 
-  function chooseExorcismBishop(r, c) {
-    const piece = board[r]?.[c];
-
-    if (!piece || piece[0] !== turn[0] || piece[1] !== "b") {
-      alert("퇴마(물리)는 내 비숍만 사용할 수 있습니다.");
-      return;
-    }
-
-    closeAllCardModals();
-    doExorcism(r, c);
-
-    cardState.activeMode = null;
-    selected = null;
-    moves = [];
-
-    consumeCurrentCard();
-    syncCardUpdate();
-
-    renderCard();
-    render();
+  function getSpaceTravelPieces(){
+    if(!cardState.spaceTravelEnabled) return [];
+    if(!localMode&&myColor&&turn!==myColor) return [];
+    const color=turn[0], corners=color==="w"?[{r:0,c:0},{r:0,c:7}]:[{r:7,c:0},{r:7,c:7}], out=[];
+    for(const pos of corners){ const pc=board[pos.r]?.[pos.c]; if(pc&&pc[0]===color) out.push(pos); }
+    return out;
   }
 
-  function doExorcism(r, c) {
-    const bishop = board[r][c];
-    if (!bishop) return;
+  function showSpaceModal(){ const targets=getSpaceTravelPieces(); if(targets.length===0){ alert("텔레포트 가능한 기물이 없습니다."); return; } cardState.activeMode="spacePick"; selected=null; moves=targets; render(); }
 
-    const color = bishop[0];
-    const dir = color === "w" ? -1 : 1;
-
-    for (let dc = -1; dc <= 1; dc++) {
-      const nr = r + dir;
-      const nc = c + dc;
-
-      if (nr < 0 || nr > 7 || nc < 0 || nc > 7) continue;
-
-      const target = board[nr][nc];
-
-      if (target && target[1] === "k" && !cardState.queenRuleActive) {
-        alert("퇴마(물리)로 킹 제거! 승자: " + turn);
-        board[nr][nc] = "";
-        return;
-      }
-
-      if (target && target[1] === "q" && cardState.queenRuleActive) {
-        alert("퇴마(물리)로 퀸 제거! 승자: " + turn);
-        board[nr][nc] = "";
-        return;
-      }
-
-      board[nr][nc] = "";
-    }
-
-    turn = turn === "white" ? "black" : "white";
+  function chooseSpacePiece(r,c){
+    if(!getSpaceTravelPieces().some(p=>p.r===r&&p.c===c)){ alert("상대 진영 코너에 도착한 기물만 선택 가능합니다."); return; }
+    cardState.selectedSquares=[{r,c}]; cardState.activeMode="spacePlace"; selected={r,c}; moves=getSpaceDestinationMoves(board[r][c][0]); alert("이동할 칸을 선택하세요."); render();
   }
 
-  function getReactionaryOwnerColor() {
-    if (!localMode && myColor) return myColor;
-    return turn;
+  function getSpaceDestinationMoves(color){
+    const out=[]; for(let r=0;r<8;r++) for(let c=0;c<8;c++){ const t=board[r][c]; if(!t||(t[0]!==color&&t[1]!=="k")) out.push({r,c}); } return out;
   }
 
-  function getReactionaryRookOptions() {
-    const result = [];
-    const owner = getReactionaryOwnerColor();
-
-    if (owner === "white") {
-      if (moved.wk || moved.wrA || moved.wrH) return result;
-      if (board[7]?.[0] === "wr") result.push({ r: 7, c: 0 });
-      if (board[7]?.[7] === "wr") result.push({ r: 7, c: 7 });
-    }
-
-    if (owner === "black") {
-      if (moved.bk || moved.brA || moved.brH) return result;
-      if (board[0]?.[0] === "br") result.push({ r: 0, c: 0 });
-      if (board[0]?.[7] === "br") result.push({ r: 0, c: 7 });
-    }
-
-    return result;
+  function placeSpaceTravel(r,c){
+    const from=cardState.selectedSquares[0]; if(!from) return;
+    const pc=board[from.r][from.c], target=board[r][c]; if(!pc) return;
+    if(target&&target[0]===pc[0]){ alert("내 기물이 있는 칸으로는 텔레포트할 수 없습니다."); return; }
+    if(target&&target[1]==="k"){ alert("우주여행으로 킹은 잡을 수 없습니다."); return; }
+    if(target&&target[0]!==pc[0]) cardState.necroCapturedPieces.push(target);
+    board[r][c]=pc; board[from.r][from.c]=""; cardState.activeMode=null; cardState.selectedSquares=[]; selected=null; moves=[]; turn=opp(turn); syncCardUpdate(); renderCard(); render();
   }
 
-  function chooseReactionaryRook(r, c) {
-    const owner = getReactionaryOwnerColor();
-    const piece = board[r]?.[c];
-
-    if (!piece || piece[0] !== owner[0] || piece[1] !== "r") {
-      alert("내 룩만 왕룩으로 선택 가능합니다.");
-      return;
-    }
-
-    const options = getReactionaryRookOptions();
-    const ok = options.some(pos => pos.r === r && pos.c === c);
-
-    if (!ok) {
-      alert("캐슬링 둘 다 하지 않은 상태의 시작 위치 룩만 선택 가능합니다.");
-      return;
-    }
-
-    closeAllCardModals();
-
-    cardState.reactionaryActive = true;
-    cardState.reactionaryRook = { r, c };
-    cardState.reactionaryChecks = 0;
-    cardState.activeMode = null;
-
-    selected = null;
-    moves = [];
-
-    syncCardUpdate();
-
-    alert("왕룩 지정 완료. 이 룩이 잡히면 패배합니다.");
-
-    renderCard();
-    render();
+  function showNecroModal(){
+    const modal=document.getElementById("necroModal"), list=document.getElementById("necroList");
+    if(cardState.necroCapturedPieces.length===0){ alert("부활시킬 수 있는 잡은 기물이 없습니다."); return; }
+    list.innerHTML=""; cardState.necroCapturedPieces.forEach((pc,i)=>{ const btn=document.createElement("button"); btn.className="selectBtn"; btn.textContent=`${pname(pc)} (${pc[0]==="w"?"백":"흑"})`; btn.onclick=()=>chooseNecroPiece(i); list.appendChild(btn); });
+    cardState.activeMode="necroPick"; pendingCardUse=myCard; modal.classList.remove("hidden");
   }
 
-  function getSpaceTravelPieces() {
-    if (!cardState.spaceTravelEnabled) return [];
-
-    if (!localMode && myColor && turn !== myColor) return [];
-
-    const color = turn[0];
-    const result = [];
-
-    const corners = color === "w"
-      ? [{ r: 0, c: 0 }, { r: 0, c: 7 }]
-      : [{ r: 7, c: 0 }, { r: 7, c: 7 }];
-
-    for (const pos of corners) {
-      const piece = board[pos.r]?.[pos.c];
-
-      if (piece && piece[0] === color) {
-        result.push({
-          r: pos.r,
-          c: pos.c,
-          type: "normal"
-        });
-      }
-    }
-
-    return result;
+  function chooseNecroPiece(index){
+    const pc=cardState.necroCapturedPieces[index]; if(!pc){ alert("선택한 기물이 없습니다."); return; }
+    cardState.necroSelectedPiece=pc; cardState.activeMode="necroPlace"; moves=getNecroPlaceMoves(); selected=null; closeAllCardModals();
+    if(moves.length===0){ alert("킹 주변에 부활 가능한 빈칸이 없습니다."); cardState.necroSelectedPiece=null; cardState.activeMode=null; moves=[]; render(); return; }
+    alert("킹 주변 빈칸을 선택하세요."); render();
   }
 
-  function getSpaceDestinationMoves(color) {
-    const result = [];
-
-    for (let r = 0; r < 8; r++) {
-      for (let c = 0; c < 8; c++) {
-        const target = board[r][c];
-
-        if (!target) {
-          result.push({ r, c, type: "normal" });
-          continue;
-        }
-
-        if (target[0] !== color && target[1] !== "k") {
-          result.push({ r, c, type: "normal" });
-        }
-      }
-    }
-
-    return result;
+  function findMyKing(){ const k=turn==="white"?"wk":"bk"; for(let r=0;r<8;r++) for(let c=0;c<8;c++) if(board[r][c]===k) return {r,c}; return null; }
+  function getNecroPlaceMoves(){
+    const k=findMyKing(); if(!k) return []; const out=[];
+    for(let dr=-1;dr<=1;dr++) for(let dc=-1;dc<=1;dc++){ if(!dr&&!dc) continue; const r=k.r+dr,c=k.c+dc; if(r<0||r>7||c<0||c>7||board[r][c]) continue; out.push({r,c}); }
+    return out;
   }
 
-  function showSpaceModal() {
-    const modal = document.getElementById("spaceModal");
-    const list = document.getElementById("spaceList");
-    const targets = getSpaceTravelPieces();
-
-    if (targets.length === 0) {
-      alert("텔레포트 가능한 기물이 없습니다.");
-      cancelCardSelection();
-      return;
-    }
-
-    if (!modal || !list) {
-      cardState.activeMode = "spacePick";
-      cardState.selectedSquares = [];
-      selected = null;
-      moves = targets;
-      renderCard();
-      render();
-      return;
-    }
-
-    list.innerHTML = "";
-
-    targets.forEach(pos => {
-      const piece = board[pos.r][pos.c];
-      const btn = document.createElement("button");
-      btn.className = "selectBtn";
-      btn.textContent = `${pieceName(piece)} ${squareName(pos.r, pos.c)}`;
-      btn.onclick = () => chooseSpacePiece(pos.r, pos.c);
-      list.appendChild(btn);
-    });
-
-    cardState.activeMode = "spacePick";
-    cardState.selectedSquares = [];
-
-    selected = null;
-    moves = targets;
-
-    modal.classList.remove("hidden");
-    render();
+  function placeNecro(r,c){
+    if(board[r][c]){ alert("빈칸만 가능"); return; }
+    const k=findMyKing(); if(!k){ alert("킹 없음"); return; }
+    if(Math.abs(k.r-r)>1||Math.abs(k.c-c)>1){ alert("킹 주변만 가능"); return; }
+    board[r][c]=turn[0]+cardState.necroSelectedPiece[1]; cardState.necroUsed=true;
+    const idx=cardState.necroCapturedPieces.findIndex(p=>p===cardState.necroSelectedPiece); if(idx!==-1) cardState.necroCapturedPieces.splice(idx,1);
+    cardState.necroSelectedPiece=null; cardState.activeMode=null; selected=null; moves=[]; turn=opp(turn); consumeCurrentCard(); syncCardUpdate(); renderCard(); render();
   }
 
-  function chooseSpacePiece(r, c) {
-    const piece = board[r]?.[c];
-
-    if (!piece || piece[0] !== turn[0]) {
-      alert("텔레포트 가능한 내 기물만 선택 가능합니다.");
-      return;
-    }
-
-    const targets = getSpaceTravelPieces();
-    const ok = targets.some(pos => pos.r === r && pos.c === c);
-
-    if (!ok) {
-      alert("상대 진영 코너에 도착한 기물만 선택 가능합니다.");
-      return;
-    }
-
-    closeAllCardModals();
-
-    cardState.selectedSquares = [{ r, c }];
-    cardState.activeMode = "spacePlace";
-
-    selected = { r, c };
-    moves = getSpaceDestinationMoves(piece[0]);
-
-    alert("이동할 칸을 선택하세요. 상대 기물은 잡을 수 있지만 킹은 못 잡습니다.");
-
-    renderCard();
-    render();
-  }
-
-  function placeSpaceTravel(r, c) {
-    const from = cardState.selectedSquares[0];
-
-    if (!from) {
-      alert("텔레포트할 기물이 선택되지 않았습니다.");
-      cardState.activeMode = null;
-      cardState.selectedSquares = [];
-      selected = null;
-      moves = [];
-      render();
-      return;
-    }
-
-    const piece = board[from.r]?.[from.c];
-    const target = board[r]?.[c];
-
-    if (!piece) {
-      alert("텔레포트할 기물이 없음");
-      cardState.activeMode = null;
-      cardState.selectedSquares = [];
-      selected = null;
-      moves = [];
-      render();
-      return;
-    }
-
-    if (target && target[0] === piece[0]) {
-      alert("내 기물이 있는 칸으로는 텔레포트할 수 없습니다.");
-      return;
-    }
-
-    if (target && target[1] === "k") {
-      alert("우주여행으로 킹은 잡을 수 없습니다.");
-      return;
-    }
-
-    if (target && target[0] !== piece[0] && target[1] !== "k") {
-      cardState.necroCapturedPieces.push(target);
-    }
-
-    board[r][c] = piece;
-    board[from.r][from.c] = "";
-
-    cardState.selectedSquares = [];
-    cardState.activeMode = null;
-
-    selected = null;
-    moves = [];
-
-    turn = turn === "white" ? "black" : "white";
-
-    syncCardUpdate();
-
-    renderCard();
-    render();
-  }
-
-  function showNecroModal() {
-    const modal = document.getElementById("necroModal");
-    const list = document.getElementById("necroList");
-
-    if (cardState.necroCapturedPieces.length === 0) {
-      alert("부활시킬 수 있는 잡은 기물이 없습니다.");
-      cancelCardSelection();
-      return;
-    }
-
-    if (!modal || !list) {
-      cardState.activeMode = "necroPick";
-      pendingCardUse = myCard;
-      selected = null;
-      moves = [];
-      render();
-      return;
-    }
-
-    list.innerHTML = "";
-
-    cardState.necroCapturedPieces.forEach((piece, index) => {
-      const btn = document.createElement("button");
-      btn.className = "selectBtn";
-      btn.textContent = `${pieceName(piece)} (${piece[0] === "w" ? "백" : "흑"})`;
-      btn.onclick = () => chooseNecroPiece(index);
-      list.appendChild(btn);
-    });
-
-    cardState.activeMode = "necroPick";
-    pendingCardUse = myCard;
-
-    selected = null;
-    moves = [];
-
-    modal.classList.remove("hidden");
-    render();
-  }
-
-  function chooseNecroPiece(index) {
-    const piece = cardState.necroCapturedPieces[index];
-
-    if (!piece) {
-      alert("선택한 기물이 없습니다.");
-      return;
-    }
-
-    cardState.necroSelectedPiece = piece;
-    cardState.activeMode = "necroPlace";
-
-    moves = getNecroPlaceMoves();
-    selected = null;
-
-    closeAllCardModals();
-
-    if (moves.length === 0) {
-      alert("킹 주변에 부활 가능한 빈칸이 없습니다.");
-
-      cardState.necroSelectedPiece = null;
-      cardState.activeMode = null;
-
-      moves = [];
-      render();
-      return;
-    }
-
-    alert("킹 주변 빈칸을 선택하세요.");
-    render();
-  }
-
-  function placeNecro(r, c) {
-    if (board[r][c]) {
-      alert("빈칸만 가능");
-      return;
-    }
-
-    const kingPos = findMyKing();
-
-    if (!kingPos) {
-      alert("킹 없음");
-      return;
-    }
-
-    const near = Math.abs(kingPos.r - r) <= 1 && Math.abs(kingPos.c - c) <= 1;
-
-    if (!near) {
-      alert("킹 주변만 가능");
-      return;
-    }
-
-    const color = turn[0];
-    const type = cardState.necroSelectedPiece[1];
-
-    board[r][c] = color + type;
-
-    cardState.necroUsed = true;
-
-    const usedIndex = cardState.necroCapturedPieces.findIndex(
-      p => p === cardState.necroSelectedPiece
-    );
-
-    if (usedIndex !== -1) {
-      cardState.necroCapturedPieces.splice(usedIndex, 1);
-    }
-
-    cardState.necroSelectedPiece = null;
-    cardState.activeMode = null;
-
-    selected = null;
-    moves = [];
-
-    turn = turn === "white" ? "black" : "white";
-
-    consumeCurrentCard();
-    syncCardUpdate();
-
-    renderCard();
-    render();
-  }
-
-  function findMyKing() {
-    const king = turn === "white" ? "wk" : "bk";
-
-    for (let r = 0; r < 8; r++) {
-      for (let c = 0; c < 8; c++) {
-        if (board[r][c] === king) return { r, c };
-      }
-    }
-
+  function getKingReturnData(score){
+    if(score>=3&&score<=6) return {mode:"bn",turns:15,score};
+    if(score>=7&&score<=10) return {mode:"q",turns:5,score};
+    if(score>=11&&score<=14) return {mode:"q",turns:10,score};
+    if(score>=15&&score<=18) return {mode:"q",turns:15,score};
+    if(score>=19&&score<=22) return {mode:"qn",turns:15,score};
     return null;
   }
 
-  function getNecroPlaceMoves() {
-    const kingPos = findMyKing();
-    if (!kingPos) return [];
-
-    const result = [];
-
-    for (let dr = -1; dr <= 1; dr++) {
-      for (let dc = -1; dc <= 1; dc++) {
-        if (dr === 0 && dc === 0) continue;
-
-        const r = kingPos.r + dr;
-        const c = kingPos.c + dc;
-
-        if (r < 0 || r > 7 || c < 0 || c > 7) continue;
-        if (board[r][c]) continue;
-
-        result.push({
-          r,
-          c,
-          type: "normal"
-        });
-      }
-    }
-
-    return result;
+  function activateKingReturn(){
+    const values={q:9,r:5,b:3,n:3}; let score=0;
+    for(let r=0;r<8;r++) for(let c=0;c<8;c++){ const pc=board[r][c]; if(!pc||pc[0]!==turn[0]||pc[1]==="k"||pc[1]==="p") continue; score+=values[pc[1]]||0; board[r][c]=""; }
+    if(score>=23){ alert("왕의 귀환 실패! 23점 이상이라 패배"); if(!localMode&&ws&&ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({type:"resign"})); return; }
+    cardState.kingReturn=getKingReturnData(score);
+    alert(cardState.kingReturn?`왕의 귀환 발동! 점수 ${score}, ${cardState.kingReturn.turns}턴 강화`:`왕의 귀환 발동! 점수 ${score}, 강화 없음`);
   }
 
-  function getKingReturnData(score) {
-    if (score >= 3 && score <= 6) return { mode: "bn", turns: 15, score };
-    if (score >= 7 && score <= 10) return { mode: "q", turns: 5, score };
-    if (score >= 11 && score <= 14) return { mode: "q", turns: 10, score };
-    if (score >= 15 && score <= 18) return { mode: "q", turns: 15, score };
-    if (score >= 19 && score <= 22) return { mode: "qn", turns: 15, score };
-
-    return null;
-  }
-
-  function activateKingReturn() {
-    const values = {
-      q: 9,
-      r: 5,
-      b: 3,
-      n: 3
-    };
-
-    let score = 0;
-
-    for (let r = 0; r < 8; r++) {
-      for (let c = 0; c < 8; c++) {
-        const piece = board[r][c];
-
-        if (!piece) continue;
-        if (piece[0] !== turn[0]) continue;
-        if (piece[1] === "k") continue;
-        if (piece[1] === "p") continue;
-
-        score += values[piece[1]] || 0;
-        board[r][c] = "";
-      }
-    }
-
-    if (score >= 23) {
-      alert("왕의 귀환 실패! 23점 이상이라 패배");
-
-      if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "resign" }));
-      }
-
-      return;
-    }
-
-    cardState.kingReturn = getKingReturnData(score);
-
-    if (cardState.kingReturn) {
-      alert(`왕의 귀환 발동! 점수 ${score}, ${cardState.kingReturn.turns}턴 강화`);
-    } else {
-      alert(`왕의 귀환 발동! 점수 ${score}, 강화 없음`);
-    }
-
-    // 왕의 귀환은 턴을 소모하지 않음
-  }
-
-  function openUndoMoveModal(type) {
-    pendingUndoType = type;
-
-    const modal = document.getElementById("undoMoveModal");
-    const title = document.getElementById("undoMoveTitle");
-    const desc = document.getElementById("undoMoveDesc");
-
-    if (type === "noThatMove") {
-      if (title) title.textContent = "그 수 하지 마";
-      if (desc) desc.textContent = "상대가 마지막으로 둔 수를 무르고, 같은 수를 다시 못 두게 합니다.";
-    }
-
-    if (type === "temusanTimeStone") {
-      if (title) title.textContent = "테무산 타임스톤";
-      if (desc) desc.textContent = "내가 마지막으로 둔 수를 무릅니다.";
-    }
-
+  function openUndoMoveModal(type){
+    pendingUndoType=type;
+    const modal=document.getElementById("undoMoveModal"), title=document.getElementById("undoMoveTitle"), desc=document.getElementById("undoMoveDesc");
+    if(type==="noThatMove"){ if(title) title.textContent="그 수 하지 마"; if(desc) desc.textContent="상대가 마지막으로 둔 수를 무르고, 같은 수를 다시 못 두게 합니다."; }
+    if(type==="temusanTimeStone"){ if(title) title.textContent="테무산 타임스톤"; if(desc) desc.textContent="내가 마지막으로 둔 수를 무릅니다."; }
     modal?.classList.remove("hidden");
   }
 
-  function closeUndoMoveModal() {
-    pendingUndoType = null;
-    document.getElementById("undoMoveModal")?.classList.add("hidden");
+  function closeUndoMoveModal(){ pendingUndoType=null; document.getElementById("undoMoveModal")?.classList.add("hidden"); }
+  function confirmUndoMove(){
+    if(!pendingUndoType) return; const type=pendingUndoType; closeUndoMoveModal();
+    if(!localMode&&ws&&ws.readyState===WebSocket.OPEN){ ws.send(JSON.stringify({type:"card",card:type})); return; }
+    if(type==="noThatMove") useNoThatMoveLocal();
+    if(type==="temusanTimeStone") useTemusanTimeStoneLocal();
   }
 
-  function confirmUndoMove() {
-    if (!pendingUndoType) return;
-
-    const type = pendingUndoType;
-
-    closeUndoMoveModal();
-
-    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: "card",
-        card: type
-      }));
-      return;
-    }
-
-    if (type === "noThatMove") {
-      useNoThatMoveLocal();
-      return;
-    }
-
-    if (type === "temusanTimeStone") {
-      useTemusanTimeStoneLocal();
-    }
+  function useNoThatMoveLocal(){
+    if(myCard!=="noThatMove") return;
+    if(cardState.noThatMoveUses<=0){ alert("그 수 하지 마 사용 횟수가 없습니다."); return; }
+    const last=moveHistory[moveHistory.length-1]; if(!last){ alert("무를 상대 수가 없습니다."); return; }
+    if(last.by==="white"){ alert("상대가 마지막으로 둔 수만 막을 수 있습니다."); return; }
+    restoreLocalHistory(last); moveHistory.pop(); cardState.noThatMoveUses--; forbiddenMove[last.by]={from:clone(last.from),to:clone(last.to)}; if(cardState.noThatMoveUses<=0) myCard=null; alert("그 수 하지 마 발동!"); renderCard(); render();
   }
 
-  function useNoThatMoveLocal() {
-    if (myCard !== "noThatMove") return;
-
-    if (cardState.noThatMoveUses <= 0) {
-      alert("그 수 하지 마 사용 횟수가 없습니다.");
-      return;
-    }
-
-    const last = moveHistory[moveHistory.length - 1];
-
-    if (!last) {
-      alert("무를 상대 수가 없습니다.");
-      return;
-    }
-
-    const myLocalColor = "white";
-
-    if (last.by === myLocalColor) {
-      alert("상대가 마지막으로 둔 수만 막을 수 있습니다.");
-      return;
-    }
-
-    restoreLocalHistory(last);
-    moveHistory.pop();
-
-    cardState.noThatMoveUses--;
-    forbiddenMove[last.by] = {
-      from: clone(last.from),
-      to: clone(last.to)
-    };
-
-    if (cardState.noThatMoveUses <= 0) {
-      myCard = null;
-    }
-
-    alert("그 수 하지 마 발동!");
-
-    renderCard();
-    render();
+  function useTemusanTimeStoneLocal(){
+    if(myCard!=="temusanTimeStone") return;
+    if(cardState.temusanTimeStoneUses<=0){ alert("테무산 타임스톤 사용 횟수가 없습니다."); return; }
+    let index=-1; for(let i=moveHistory.length-1;i>=0;i--) if(moveHistory[i].by==="white"){ index=i; break; }
+    if(index===-1){ alert("무를 내 수가 없습니다."); return; }
+    restoreLocalHistory(moveHistory[index]); moveHistory=moveHistory.slice(0,index); cardState.temusanTimeStoneUses--; if(cardState.temusanTimeStoneUses<=0) myCard=null; alert("테무산 타임스톤 발동!"); renderCard(); render();
   }
 
-  function useTemusanTimeStoneLocal() {
-    if (myCard !== "temusanTimeStone") return;
-
-    if (cardState.temusanTimeStoneUses <= 0) {
-      alert("테무산 타임스톤 사용 횟수가 없습니다.");
-      return;
-    }
-
-    const myLocalColor = "white";
-    let index = -1;
-
-    for (let i = moveHistory.length - 1; i >= 0; i--) {
-      if (moveHistory[i].by === myLocalColor) {
-        index = i;
-        break;
-      }
-    }
-
-    if (index === -1) {
-      alert("무를 내 수가 없습니다.");
-      return;
-    }
-
-    const item = moveHistory[index];
-
-    restoreLocalHistory(item);
-
-    moveHistory = moveHistory.slice(0, index);
-
-    cardState.temusanTimeStoneUses--;
-
-    if (cardState.temusanTimeStoneUses <= 0) {
-      myCard = null;
-    }
-
-    alert("테무산 타임스톤 발동!");
-
-    renderCard();
-    render();
-  }
-
-  function openResultChoiceModal(info) {
-    resultChoiceState = info;
-
-    const modal = document.getElementById("choiceResultModal");
-    const title = document.getElementById("choiceResultTitle");
-    const desc = document.getElementById("choiceResultDesc");
-
-    if (title) {
-      title.textContent = info.card === "fiveAhead" ? "5수 앞" : "양심테스트";
-    }
-
-    if (desc) {
-      desc.textContent = info.message || (
-        info.card === "fiveAhead"
-          ? "결과를 선택하세요. 실제 결과는 반대로 적용됩니다."
-          : "결과를 선택하세요. 선택한 그대로 적용됩니다."
-      );
-    }
-
+  function openResultChoiceModal(info){
+    resultChoiceState=info;
+    const modal=document.getElementById("choiceResultModal"), title=document.getElementById("choiceResultTitle"), desc=document.getElementById("choiceResultDesc");
+    if(title) title.textContent=info.card==="fiveAhead"?"5수 앞":"양심테스트";
+    if(desc) desc.textContent=info.message||(info.card==="fiveAhead"?"결과를 선택하세요. 실제 결과는 반대로 적용됩니다.":"결과를 선택하세요. 선택한 그대로 적용됩니다.");
     modal?.classList.remove("hidden");
   }
 
-  function chooseResultOption(option) {
+  function chooseResultOption(option){
     document.getElementById("choiceResultModal")?.classList.add("hidden");
-
-    if (!resultChoiceState) return;
-
-    const info = resultChoiceState;
-    resultChoiceState = null;
-
-    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: "resultChoice",
-        option
-      }));
-      return;
-    }
-
-    const owner = info.owner || "white";
-    const chooser = info.chooser || "black";
-    let winner;
-
-    if (info.card === "fiveAhead") {
-      if (option === "opponentWin") {
-        winner = owner;
-      } else {
-        winner = chooser;
-      }
-    } else {
-      if (option === "opponentWin") {
-        winner = chooser;
-      } else {
-        winner = owner;
-      }
-    }
-
-    alert("게임 끝! 승자: " + winner);
+    if(!resultChoiceState) return; const info=resultChoiceState; resultChoiceState=null;
+    if(!localMode&&ws&&ws.readyState===WebSocket.OPEN){ ws.send(JSON.stringify({type:"resultChoice",option})); return; }
+    const owner=info.owner||"white", chooser=info.chooser||"black";
+    const winner=info.card==="fiveAhead"?(option==="opponentWin"?owner:chooser):(option==="opponentWin"?chooser:owner);
+    alert("게임 끝! 승자: "+winner);
   }
 
-  function openQuickDuelModal() {
-    const modal = document.getElementById("quickDuelModal");
-    modal?.classList.remove("hidden");
-
-    updateQuickDuelStatus("1라운드 선택하세요. 3판 2선승제입니다.");
+  function openQuickDuelModal(){ document.getElementById("quickDuelModal")?.classList.remove("hidden"); updateQuickDuelStatus("1라운드 선택하세요. 3판 2선승제입니다."); }
+  function updateQuickDuelStatus(t){ const el=document.getElementById("quickDuelStatus"); if(el) el.textContent=t; }
+  function chooseQuickDuel(choice){
+    if(!localMode&&ws&&ws.readyState===WebSocket.OPEN){ ws.send(JSON.stringify({type:"quickDuelChoice",choice})); return; }
+    const other=["rock","scissors","paper"][Math.floor(Math.random()*3)], result=quickDuelCompare(choice,other);
+    if(!quickDuelState) quickDuelState={round:1,score:{white:0,black:0}};
+    let rw=null; if(result==="win"){rw="white"; quickDuelState.score.white++;} if(result==="lose"){rw="black"; quickDuelState.score.black++;}
+    alert(`내 선택: ${choiceToKorean(choice)}\n상대 선택: ${choiceToKorean(other)}\n결과: ${rw?rw+" 승":"무승부"}`);
+    if(quickDuelState.score.white>=2||quickDuelState.score.black>=2){ const winner=quickDuelState.score.white>=2?"white":"black"; closeAllCardModals(); alert("속전속결 종료! 승자: "+winner); quickDuelState=null; return; }
+    quickDuelState.round++; updateQuickDuelStatus(`${quickDuelState.round}라운드 선택하세요. 백 ${quickDuelState.score.white} : 흑 ${quickDuelState.score.black}`);
   }
 
-  function updateQuickDuelStatus(text) {
-    const el = document.getElementById("quickDuelStatus");
-    if (el) el.textContent = text;
+  function quickDuelCompare(a,b){ if(a===b) return "draw"; if(a==="rock"&&b==="scissors") return "win"; if(a==="scissors"&&b==="paper") return "win"; if(a==="paper"&&b==="rock") return "win"; return "lose"; }
+  function choiceToKorean(x){ return x==="rock"?"묵":x==="scissors"?"찌":x==="paper"?"빠":"?"; }
+
+  function activateCard(){
+    if(!myCard){ alert("사용할 카드가 없습니다."); return; }
+    const card=myCard;
+    if(card==="bombLauncher"){ alert("폭탄 발사대는 첫 전투 시 자동 발동합니다."); return; }
+    if(card==="versatile"){ alert("다재다능은 게임 시작부터 적용되는 패시브입니다."); return; }
+    if(card==="extremeEfficiency"){ alert("극한의 효율은 게임 시작 전 자동 적용되는 패시브입니다."); return; }
+    if(card==="fiveAhead"||card==="conscienceTest"){ alert("이 능력은 게임 시작 시 자동 발동됩니다."); return; }
+    if(card==="reactionary"){ alert("반동분자는 패시브 능력입니다."); return; }
+    if(card==="noThatMove"){ openUndoMoveModal("noThatMove"); return; }
+    if(card==="temusanTimeStone"){ openUndoMoveModal("temusanTimeStone"); return; }
+    if(card==="quickDuel"){
+      if(!localMode&&ws&&ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({type:"card",card:"quickDuel"}));
+      else { quickDuelState={round:1,score:{white:0,black:0}}; openQuickDuelModal(); }
+      myCard=null; renderCard(); return;
+    }
+    if(card==="equality"){ const res=useCard(card,cardState); alert(res.message); renderCard(); render(); return; }
+    if(card==="exorcism"){ pendingCardUse=card; showExorcismModal(); return; }
+    if(card==="necro"){
+      if(cardState.necroCapturedPieces.length===0){ alert("아직 부활시킬 잡은 기물이 없습니다."); return; }
+      pendingCardUse=card; showNecroModal(); return;
+    }
+    if(card==="spaceTravel"){
+      const res=useCard(card,cardState); if(!res.ok){ alert(res.message); return; } alert(res.message);
+      if(!localMode&&ws&&ws.readyState===WebSocket.OPEN) ws.send(JSON.stringify({type:"card",card}));
+      syncCardUpdate(); renderCard(); render(); return;
+    }
+    if(card==="queenRule"){
+      const res=useCard(card,cardState); alert(res.message); pendingCardUse=card; consumeCurrentCard(); syncCardUpdate(); renderCard(); render(); return;
+    }
+    if(card==="kingReturn"){
+      pendingCardUse=card; activateKingReturn(); consumeCurrentCard(); syncCardUpdate(); renderCard(); render(); return;
+    }
+    if(card==="doubleMove"||card==="wildHorse"){
+      const res=useCard(card,cardState); alert(res.message); if(!res.ok) return; pendingCardUse=card; consumeCurrentCard(); renderCard(); render(); return;
+    }
+    const res=useCard(card,cardState); alert(res.message); if(res.ok){ pendingCardUse=card; consumeCurrentCard(); renderCard(); render(); }
   }
 
-  function chooseQuickDuel(choice) {
-    if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
-      ws.send(JSON.stringify({
-        type: "quickDuelChoice",
-        choice
-      }));
-      return;
-    }
-
-    // 로컬은 상대 입력 UI가 없으므로 간단히 랜덤 상대 처리
-    const opponentChoice = ["rock", "scissors", "paper"][Math.floor(Math.random() * 3)];
-    const result = quickDuelCompare(choice, opponentChoice);
-
-    if (!quickDuelState) {
-      quickDuelState = {
-        round: 1,
-        score: {
-          white: 0,
-          black: 0
-        }
-      };
-    }
-
-    let roundWinner = null;
-
-    if (result === "win") {
-      roundWinner = "white";
-      quickDuelState.score.white++;
-    }
-
-    if (result === "lose") {
-      roundWinner = "black";
-      quickDuelState.score.black++;
-    }
-
-    alert(
-      `내 선택: ${choiceToKorean(choice)}\n` +
-      `상대 선택: ${choiceToKorean(opponentChoice)}\n` +
-      `결과: ${roundWinner ? roundWinner + " 승" : "무승부"}`
-    );
-
-    if (quickDuelState.score.white >= 2 || quickDuelState.score.black >= 2) {
-      const winner = quickDuelState.score.white >= 2 ? "white" : "black";
-      closeAllCardModals();
-      alert("속전속결 종료! 승자: " + winner);
-      quickDuelState = null;
-      return;
-    }
-
-    quickDuelState.round++;
-    updateQuickDuelStatus(
-      `${quickDuelState.round}라운드 선택하세요. 백 ${quickDuelState.score.white} : 흑 ${quickDuelState.score.black}`
-    );
-  }
-
-  function quickDuelCompare(a, b) {
-    if (a === b) return "draw";
-
-    if (a === "rock" && b === "scissors") return "win";
-    if (a === "scissors" && b === "paper") return "win";
-    if (a === "paper" && b === "rock") return "win";
-
-    return "lose";
-  }
-
-  function choiceToKorean(choice) {
-    if (choice === "rock") return "묵";
-    if (choice === "scissors") return "찌";
-    if (choice === "paper") return "빠";
-    return "?";
-  }
-
-  function activateCard() {
-    if (!myCard) {
-      alert("사용할 카드가 없습니다.");
-      return;
-    }
-
-    const usedCard = myCard;
-
-    if (usedCard === "equality") {
-      const result = useCard(usedCard, cardState);
-      alert(result.message);
-
-      selected = null;
-      moves = [];
-
-      renderCard();
-      render();
-      return;
-    }
-
-    if (usedCard === "reactionary") {
-      alert("반동분자는 패시브 능력입니다. 내 킹이 잡혔을 때 조건을 만족하면 발동됩니다.");
-      return;
-    }
-
-    if (usedCard === "bombLauncher") {
-      alert("폭탄 발사대는 첫 전투 시 자동 발동합니다.");
-      return;
-    }
-
-    if (usedCard === "versatile") {
-      alert("다재다능은 게임 시작부터 적용되는 패시브입니다.");
-      return;
-    }
-
-    if (usedCard === "extremeEfficiency") {
-      alert("극한의 효율은 게임 시작 전 자동 적용되는 패시브입니다.");
-      return;
-    }
-
-    if (usedCard === "fiveAhead" || usedCard === "conscienceTest") {
-      alert("이 능력은 게임 시작 시 자동 발동됩니다.");
-      return;
-    }
-
-    if (usedCard === "noThatMove") {
-      openUndoMoveModal("noThatMove");
-      return;
-    }
-
-    if (usedCard === "temusanTimeStone") {
-      openUndoMoveModal("temusanTimeStone");
-      return;
-    }
-
-    if (usedCard === "quickDuel") {
-      if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: "card",
-          card: "quickDuel"
-        }));
-      } else {
-        quickDuelState = {
-          round: 1,
-          score: {
-            white: 0,
-            black: 0
-          }
-        };
-        openQuickDuelModal();
-      }
-
-      myCard = null;
-      renderCard();
-      return;
-    }
-
-    if (!localMode && myColor && turn !== myColor && usedCard === "doubleMove") {
-      alert("더블무브는 내 턴에만 사용할 수 있습니다.");
-      return;
-    }
-
-    if (usedCard === "exorcism") {
-      pendingCardUse = usedCard;
-      showExorcismModal();
-      return;
-    }
-
-    if (usedCard === "necro") {
-      if (cardState.necroUsed) {
-        alert("네크로맨서는 이미 사용했습니다.");
-        return;
-      }
-
-      if (cardState.necroCapturedPieces.length === 0) {
-        alert("아직 부활시킬 잡은 기물이 없습니다.");
-        return;
-      }
-
-      pendingCardUse = usedCard;
-      showNecroModal();
-      return;
-    }
-
-    if (usedCard === "spaceTravel") {
-      const result = useCard(usedCard, cardState);
-
-      if (!result.ok) {
-        alert(result.message);
-        return;
-      }
-
-      alert(result.message);
-
-      pendingCardUse = null;
-
-      if (!localMode && ws && ws.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({
-          type: "card",
-          card: usedCard
-        }));
-      }
-
-      syncCardUpdate();
-
-      renderCard();
-      render();
-
-      return;
-    }
-
-    if (usedCard === "queenRule") {
-      const result = useCard(usedCard, cardState);
-
-      alert(result.message);
-
-      pendingCardUse = usedCard;
-      consumeCurrentCard();
-
-      syncCardUpdate();
-
-      renderCard();
-      render();
-
-      return;
-    }
-
-    if (usedCard === "kingReturn") {
-      pendingCardUse = usedCard;
-
-      activateKingReturn();
-
-      consumeCurrentCard();
-      syncCardUpdate();
-
-      renderCard();
-      render();
-
-      return;
-    }
-
-    if (usedCard === "doubleMove" || usedCard === "wildHorse") {
-      const result = useCard(usedCard, cardState);
-
-      alert(result.message);
-
-      if (!result.ok) return;
-
-      pendingCardUse = usedCard;
-      consumeCurrentCard();
-
-      renderCard();
-      render();
-
-      return;
-    }
-
-    const result = useCard(usedCard, cardState);
-
-    alert(result.message);
-
-    if (result.ok) {
-      pendingCardUse = usedCard;
-      consumeCurrentCard();
-
-      renderCard();
-      render();
-    }
-  }
-
-  function activateSpaceTravel() {
-    showSpaceModal();
-  }
-
-  function renderCard() {
-    const area = document.getElementById("cardArea");
-    if (!area) return;
-
-    const spaceTargets = getSpaceTravelPieces();
-
-    if (cardState.activeMode === "equalityPickA") {
-      area.innerHTML = `
-        <div class="cardBox">
-          <div class="cardTitle">평등국가</div>
-          <div class="cardDesc">캐슬링할 첫 번째 내 기물을 선택하세요.</div>
-        </div>
-      `;
-      return;
-    }
-
-    if (cardState.activeMode === "equalityPickB") {
-      area.innerHTML = `
-        <div class="cardBox">
-          <div class="cardTitle">평등국가</div>
-          <div class="cardDesc">사이에 빈칸 2칸이 있는 같은 가로줄의 내 기물을 선택하세요.</div>
-        </div>
-      `;
-      return;
-    }
-
-    if (cardState.activeMode === "reactionaryPick") {
-      area.innerHTML = `
-        <div class="cardBox">
-          <div class="cardTitle">반동분자</div>
-          <div class="cardDesc">왕룩으로 지정할 룩을 선택하세요.</div>
-        </div>
-      `;
-      return;
-    }
-
-    if (cardState.activeMode === "exorcism") {
-      area.innerHTML = `
-        <div class="cardBox">
-          <div class="cardTitle">퇴마(물리)</div>
-          <div class="cardDesc">능력을 사용할 비숍을 선택하세요.</div>
-        </div>
-      `;
-      return;
-    }
-
-    if (cardState.activeMode === "necroPlace") {
-      area.innerHTML = `
-        <div class="cardBox">
-          <div class="cardTitle">네크로맨서</div>
-          <div class="cardDesc">킹 주변 빈칸을 선택하세요.</div>
-        </div>
-      `;
-      return;
-    }
-
-    if (cardState.activeMode === "spacePlace") {
-      area.innerHTML = `
-        <div class="cardBox">
-          <div class="cardTitle">우주여행</div>
-          <div class="cardDesc">이동할 칸을 선택하세요. 상대 기물은 잡을 수 있지만 킹은 못 잡습니다.</div>
-        </div>
-      `;
-      return;
-    }
-
-    if (cardState.reactionaryActive && cardState.reactionaryRook) {
-      area.innerHTML = `
-        <div class="cardBox">
-          <div class="cardTitle">왕룩 활성화</div>
-          <div class="cardDesc">
-            왕룩 위치: ${squareName(cardState.reactionaryRook.r, cardState.reactionaryRook.c)}<br>
-            위협 누적: ${cardState.reactionaryChecks}/3
-          </div>
-        </div>
-      `;
-      return;
-    }
-
-    if (cardState.spaceTravelEnabled && spaceTargets.length > 0) {
-      area.innerHTML = `
-        <div class="cardBox">
-          <div class="cardTitle">우주여행 준비됨</div>
-          <div class="cardDesc">상대 진영 코너에 도착한 내 기물을 원하는 칸으로 텔레포트합니다.</div>
-          <button class="cardBtn" onclick="Game.activateSpaceTravel()">텔레포트 사용</button>
-        </div>
-      `;
-      return;
-    }
-
-    if (!myCard) {
-      area.innerHTML = "";
-      return;
-    }
-
-    let extra = "";
-
-    if (myCard === "bombLauncher") {
-      extra = `<br><b>상태:</b> ${cardState.bombLauncherUsed ? "사용됨" : "대기 중"}`;
-    }
-
-    if (myCard === "noThatMove") {
-      extra = `<br><b>남은 횟수:</b> ${cardState.noThatMoveUses}`;
-    }
-
-    if (myCard === "temusanTimeStone") {
-      extra = `<br><b>남은 횟수:</b> ${cardState.temusanTimeStoneUses}`;
-    }
-
-    if (myCard === "versatile") {
-      extra = `<br><b>패시브 적용 중:</b> 룩 = 비숍 + 나이트 + 킹 이동`;
-    }
-
-    if (myCard === "extremeEfficiency") {
-      extra = `<br><b>패시브 적용됨:</b> 킹 1개 + 퀸 3개`;
-    }
-
-    if (myCard === "queenRule" && cardState.queenRuleActive) {
-      extra = `<br><b>활성화됨:</b> 킹과 퀸 역할 교체`;
-    }
-
-    const buttonCards = [
-      "necro",
-      "wildHorse",
-      "spaceTravel",
-      "doubleMove",
-      "equality",
-      "exorcism",
-      "kingReturn",
-      "noThatMove",
-      "temusanTimeStone",
-      "quickDuel",
-      "queenRule"
-    ];
-
-    const showButton = buttonCards.includes(myCard);
-
-    area.innerHTML = `
-      <div class="cardBox">
-        <div class="cardTitle">${getCardName(myCard)}</div>
-        <div class="cardDesc">${getCardDescription(myCard)}${extra}</div>
-        ${showButton ? `<button class="cardBtn" onclick="Game.activateCard()">능력 사용</button>` : ""}
-      </div>
-    `;
+  function activateSpaceTravel(){ showSpaceModal(); }
+
+  function renderCard(){
+    const area=document.getElementById("cardArea"); if(!area) return;
+    const spaceTargets=getSpaceTravelPieces();
+    if(cardState.activeMode==="equalityPickA"){ area.innerHTML='<div class="cardBox"><div class="cardTitle">평등국가</div><div class="cardDesc">캐슬링할 첫 번째 내 기물을 선택하세요.</div></div>'; return; }
+    if(cardState.activeMode==="equalityPickB"){ area.innerHTML='<div class="cardBox"><div class="cardTitle">평등국가</div><div class="cardDesc">사이에 빈칸 2칸이 있는 같은 가로줄의 내 기물을 선택하세요.</div></div>'; return; }
+    if(cardState.activeMode==="exorcism"){ area.innerHTML='<div class="cardBox"><div class="cardTitle">퇴마(물리)</div><div class="cardDesc">능력을 사용할 비숍을 선택하세요.</div></div>'; return; }
+    if(cardState.activeMode==="necroPlace"){ area.innerHTML='<div class="cardBox"><div class="cardTitle">네크로맨서</div><div class="cardDesc">킹 주변 빈칸을 선택하세요.</div></div>'; return; }
+    if(cardState.activeMode==="spacePlace"){ area.innerHTML='<div class="cardBox"><div class="cardTitle">우주여행</div><div class="cardDesc">이동할 칸을 선택하세요.</div></div>'; return; }
+    if(cardState.spaceTravelEnabled&&spaceTargets.length>0){ area.innerHTML='<div class="cardBox"><div class="cardTitle">우주여행 준비됨</div><div class="cardDesc">상대 진영 코너에 도착한 내 기물을 텔레포트합니다.</div><button class="cardBtn" onclick="Game.activateSpaceTravel()">텔레포트 사용</button></div>'; return; }
+    if(!myCard){ area.innerHTML=""; return; }
+    let extra="";
+    if(myCard==="bombLauncher") extra=`<br><b>상태:</b> ${cardState.bombLauncherUsed?"사용됨":"대기 중"}`;
+    if(myCard==="noThatMove") extra=`<br><b>남은 횟수:</b> ${cardState.noThatMoveUses}`;
+    if(myCard==="temusanTimeStone") extra=`<br><b>남은 횟수:</b> ${cardState.temusanTimeStoneUses}`;
+    if(myCard==="versatile") extra="<br><b>패시브 적용 중:</b> 룩 = 비숍 + 나이트 + 킹 이동";
+    if(myCard==="extremeEfficiency") extra="<br><b>패시브 적용됨:</b> 킹 1개 + 퀸 3개";
+    if(myCard==="queenRule"&&cardState.queenRuleActive) extra="<br><b>활성화됨:</b> 킹과 퀸 역할 교체";
+    const buttonCards=["necro","wildHorse","spaceTravel","doubleMove","equality","exorcism","kingReturn","noThatMove","temusanTimeStone","quickDuel","queenRule"];
+    const btn=buttonCards.includes(myCard)?'<button class="cardBtn" onclick="Game.activateCard()">능력 사용</button>':"";
+    area.innerHTML=`<div class="cardBox"><div class="cardTitle">${getCardName(myCard)}</div><div class="cardDesc">${getCardDescription(myCard)}${extra}</div>${btn}</div>`;
   }
 
   return {
-    startLocal,
-    makeRoom,
-    joinOnline,
-    backMenu,
-    resign,
-
-    choosePromotion,
-
-    activateCard,
-    activateSpaceTravel,
-
-    cancelCardSelection,
-    chooseExorcismBishop,
-    chooseReactionaryRook,
-    chooseSpacePiece,
-    chooseNecroPiece,
-
-    chooseResultOption,
-    chooseQuickDuel,
-
-    confirmUndoMove,
-    closeUndoMoveModal
+    startLocal, makeRoom, joinOnline, backMenu, resign,
+    choosePromotion, activateCard, activateSpaceTravel,
+    cancelCardSelection, chooseExorcismBishop, chooseSpacePiece, chooseNecroPiece,
+    chooseResultOption, chooseQuickDuel, confirmUndoMove, closeUndoMoveModal
   };
 })();
 
-window.Game = Game;}
-        }
-
-        if (color === "b" && r === 0 && c === 4 && !moved.bk) {
-          if (!moved.brH && board[0][5] === "" && board[0][6] === "" && board[0][7] === "br") {
-            add(0, 6, "castleKing");
-          }
-
-          if (!moved.brA && board[0][1] === "" && board[0][2] === "" && board[0][3] === "" && board[0][0] === "br") {
-            add(0, 2, "castleQueen");
-          }
-        }
-      }
-    }
-
-    return res;
-  }
-  
+window.Game = Game;
