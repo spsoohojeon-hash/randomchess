@@ -9,7 +9,7 @@
       "binding": "DB",
       "database_name": "randomchess-db",
       // This placeholder works locally. Replace it with your D1 ID before deploying.
-      "database_id": "00000000-0000-4000-8000-000000000000",
+      "database_id": "6f040436-de89-4d6f-8755-eb3eaeafdeec",
       "migrations_dir": "./drizzle"
     }
   ]
