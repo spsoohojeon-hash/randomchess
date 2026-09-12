@@ -1,0 +1,48 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import {DatabaseSync} from 'node:sqlite';
+import {readFileSync,readdirSync} from 'node:fs';
+import {roomApi} from '../lib/room-service.ts';
+import {createGame,indexOf as sq} from '../lib/game.ts';
+
+function database(){const sql=new DatabaseSync(':memory:');for(const name of readdirSync(new URL('../drizzle',import.meta.url)).filter(n=>n.endsWith('.sql')).sort())sql.exec(readFileSync(new URL('../drizzle/'+name,import.meta.url),'utf8'));return {sql,prepare(query){let args=[];return {bind(...v){args=v;return this;},async first(){return sql.prepare(query).get(...args)||null;},async run(){const r=sql.prepare(query).run(...args);return {meta:{changes:Number(r.changes)}};}};}};}
+const request=(path,token,payload)=>new Request('https://chess.test'+path,{method:payload?'POST':'GET',headers:{...(token?{Authorization:'Bearer '+token}:{}),...(payload?{'Content-Type':'application/json',Origin:'https://chess.test'}:{})},...(payload?{body:JSON.stringify(payload)}:{})});
+async function call(db,code,token,payload){const res=await roomApi(db,request(code?'/api/rooms/'+code:'/api/rooms',token,payload),code);return {status:res.status,...await res.json()};}
+async function started(db){const w=await call(db,null,null,{pool:'classic'});const b=await call(db,w.code,null,{type:'join'});return {w,b};}
+test('room creation, parallel join, third-player rejection, authenticated reconnect',async()=>{
+ const db=database();const w=await call(db,null,null,{pool:'classic'});assert.equal(w.status,201);assert.equal(w.waiting,true);assert.equal(w.side,'w');assert.equal(w.code.length,6);
+ const joins=await Promise.all([call(db,w.code,null,{type:'join'}),call(db,w.code,null,{type:'join'})]);assert.deepEqual(joins.map(j=>j.status).sort(),[200,409]);const b=joins.find(j=>j.status===200);assert.equal(b.side,'b');
+ const resumed=await call(db,w.code,w.token);assert.equal(resumed.waiting,false);assert.equal(resumed.side,'w');assert.equal(resumed.version,1);
+ assert.equal((await call(db,w.code,null)).status,401);assert.equal((await call(db,w.code,'x'.repeat(64))).status,403);
+ assert.equal((await call(db,w.code,null,{type:'join'})).status,409);db.sql.close();
+});
+test('server owns turn and move validation, stale version rejected, replay idempotent',async()=>{
+ const db=database();const {w,b}=await started(db);
+ const move={type:'action',action:{type:'move',from:sq('e2'),to:sq('e4')},version:1,requestId:'firstmove0001'};
+ assert.equal((await call(db,w.code,b.token,move)).status,400);
+ const first=await call(db,w.code,w.token,move);assert.equal(first.status,200);assert.equal(first.version,2);assert.equal(first.game.turn,'b');
+ const replay=await call(db,w.code,w.token,move);assert.equal(replay.status,200);assert.equal(replay.version,2);
+ const stale=await call(db,w.code,b.token,{...move,requestId:'othermove001'});assert.equal(stale.status,409);assert.equal(stale.version,2);
+ const invalid=await call(db,w.code,b.token,{...move,version:2,requestId:'badmove00001',action:{type:'move',from:sq('e7'),to:sq('e4')}});assert.equal(invalid.status,400);
+ const next=await call(db,w.code,b.token,{...move,version:2,requestId:'blackmove001',action:{type:'move',from:sq('e7'),to:sq('e5')}});assert.equal(next.game.board[sq('e5')].color,'b');assert.equal(next.game.undo[0].before,null);db.sql.close();
+});
+test('simultaneous white moves produce one winner and one conflict',async()=>{
+ const db=database();const {w}=await started(db);
+ const responses=await Promise.all(['e','d'].map(f=>call(db,w.code,w.token,{type:'action',version:1,requestId:'parallelmove'+f,action:{type:'move',from:sq(f+'2'),to:sq(f+'4')}})));
+ assert.deepEqual(responses.map(r=>r.status).sort(),[200,409]);const final=await call(db,w.code,w.token);assert.equal(final.game.ply,1);assert.equal(final.version,2);db.sql.close();
+});
+test('two users see the same state, duel selection remains hidden, rematch requires both',async()=>{
+ const db=database();const {w,b}=await started(db);const g=createGame('quickDuel','necro');db.sql.prepare('UPDATE chess_rooms SET game = ? WHERE code = ?').run(JSON.stringify(g),w.code);
+ const action=async(token,version,move,id)=>call(db,w.code,token,{type:'action',action:move,version,requestId:id});
+ let r=await action(w.token,1,{type:'ability'},'activateDuel');r=await action(w.token,r.version,{type:'duel',gesture:'rock'},'whiteChoice1');
+ const opposite=await call(db,w.code,b.token);assert.equal(opposite.game.duel.picks.w,null);assert.equal(opposite.game.duel.picked.w,true);
+ r=await action(b.token,r.version,{type:'resign'},'blackResign');assert.equal(r.game.result.winner,'w');
+ const ask=await call(db,w.code,w.token,{type:'rematch',version:r.version,requestId:'rematchWhite'});assert.equal(ask.game.phase,'over');assert.deepEqual(ask.rematch,['w']);
+ const accept=await call(db,w.code,b.token,{type:'rematch',version:ask.version,requestId:'rematchBlack'});assert.equal(accept.game.phase,'play');assert.equal(accept.game.ply,0);assert.equal(accept.game.board.filter(Boolean).length,32);
+ const same=await call(db,w.code,w.token);assert.deepEqual(same.game,accept.game);db.sql.close();
+});
+test('expired rooms and cross-origin mutation fail without changing state',async()=>{
+ const db=database();const {w}=await started(db);
+ const cross=new Request('https://chess.test/api/rooms/'+w.code,{method:'POST',headers:{Origin:'https://other.test','Content-Type':'application/json'},body:JSON.stringify({type:'join'})});assert.equal((await roomApi(db,cross,w.code)).status,403);
+ db.sql.prepare('UPDATE chess_rooms SET expires_at = 0 WHERE code = ?').run(w.code);assert.equal((await call(db,w.code,w.token)).status,410);db.sql.close();
+});
