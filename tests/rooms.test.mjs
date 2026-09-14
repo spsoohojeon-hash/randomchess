@@ -39,10 +39,21 @@ test('two users see the same state, duel selection remains hidden, rematch requi
  r=await action(b.token,r.version,{type:'resign'},'blackResign');assert.equal(r.game.result.winner,'w');
  const ask=await call(db,w.code,w.token,{type:'rematch',version:r.version,requestId:'rematchWhite'});assert.equal(ask.game.phase,'over');assert.deepEqual(ask.rematch,['w']);
  const accept=await call(db,w.code,b.token,{type:'rematch',version:ask.version,requestId:'rematchBlack'});assert.equal(accept.game.phase,'play');assert.equal(accept.game.ply,0);assert.equal(accept.game.board.filter(Boolean).length,32);
- const same=await call(db,w.code,w.token);assert.deepEqual(same.game,accept.game);db.sql.close();
+ const same=await call(db,w.code,w.token);assert.deepEqual(same.game.board,accept.game.board);assert.equal(same.game.abilities.b.id,"hidden");assert.equal(accept.game.abilities.w.id,"hidden");db.sql.close();
 });
 test('expired rooms and cross-origin mutation fail without changing state',async()=>{
  const db=database();const {w}=await started(db);
  const cross=new Request('https://chess.test/api/rooms/'+w.code,{method:'POST',headers:{Origin:'https://other.test','Content-Type':'application/json'},body:JSON.stringify({type:'join'})});assert.equal((await roomApi(db,cross,w.code)).status,403);
  db.sql.prepare('UPDATE chess_rooms SET expires_at = 0 WHERE code = ?').run(w.code);assert.equal((await call(db,w.code,w.token)).status,410);db.sql.close();
+});
+test('online responses keep opponent cards secret across create, join, reconnect, conflict, action and replay',async()=>{
+ const db=database();const {w,b}=await started(db);
+ assert.equal(w.game.abilities.b.id,'hidden');assert.equal(b.game.abilities.w.id,'hidden');
+ const g=createGame('wildHorse','kingReturn');db.sql.prepare('UPDATE chess_rooms SET game = ? WHERE code = ?').run(JSON.stringify(g),w.code);
+ const check=(r,side)=>{assert.equal(r.game.abilities[side==='w'?'b':'w'].id,'hidden');assert.equal(r.game.abilities[side].id,side==='w'?'wildHorse':'kingReturn');assert(r.game.undo.every(h=>h.before===null));};
+ check(await call(db,w.code,w.token),'w');check(await call(db,w.code,b.token),'b');
+ const payload={type:'action',action:{type:'ability'},version:1,requestId:'privateAbility'};
+ check(await call(db,w.code,w.token,payload),'w');check(await call(db,w.code,w.token,payload),'w');
+ const conflict=await call(db,w.code,b.token,{...payload,requestId:'privateConflict'});assert.equal(conflict.status,409);check(conflict,'b');assert(!JSON.stringify(conflict.game).includes('wildHorse'));assert(!JSON.stringify(conflict.game).includes('존나 야생마'));
+ const stored=JSON.parse(db.sql.prepare('SELECT game FROM chess_rooms WHERE code = ?').get(w.code).game);assert.equal(stored.abilities.w.id,'wildHorse');assert.equal(stored.abilities.w.active,true);db.sql.close();
 });

@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGame,applyAction,movesFor,indexOf as sq,abilityError,abilityTargets,publicGame,drawCards} from '../lib/game.ts';
+import {createGame,applyAction,movesFor,indexOf as sq,abilityError,abilityTargets,publicGame,drawCards,cardInfo} from '../lib/game.ts';
 const step=(g,from,to,promotion)=>applyAction(g,g.turn,{type:'move',from:sq(from),to:sq(to),promotion});
 function pos(w='necro',b='necro',pieces={e1:'wk',e8:'bk'}){const g=createGame(w,b);g.board.fill(null);g.phase='play';g.pending=null;for(const [s,p] of Object.entries(pieces))g.board[sq(s)]={id:p[0]+s,color:p[0],kind:p[1],moved:false};return g;}
 test('standard opening, rejected turns and invalid moves leave source unchanged',()=>{
@@ -34,8 +34,8 @@ test('double move keeps the turn twice and forbids royal capture on both moves',
  g=step(g,'h6','h7');assert.equal(g.turn,'w');assert.equal(g.doubleLeft,1);assert.throws(()=>step(g,'h7','h8'));
  g=step(g,'h7','g7');assert.equal(g.turn,'b');assert.equal(g.doubleLeft,0);
 });
-test('equality uses inner squares, preserves identities and wins at ten',()=>{
- let g=pos('equality','necro',{a1:'wk',h8:'bk',b4:'wn',e4:'wr'});g.abilities.w.castleCount=9;
+test('equality uses inner squares, preserves identities and wins at seven',()=>{
+ let g=pos('equality','necro',{a1:'wk',h8:'bk',b4:'wn',e4:'wr'});g.abilities.w.castleCount=6;
  g=applyAction(g,'w',{type:'ability',from:sq('b4'),to:sq('e4')});assert.equal(g.board[sq('d4')].kind,'n');assert.equal(g.board[sq('c4')].kind,'r');assert.equal(g.result.winner,'w');
 });
 test('necro only revives captured enemy near king, with one-time usage',()=>{
@@ -95,3 +95,13 @@ test('draw requires opponent agreement, resignation uses actual actor',()=>{
  assert.equal(applyAction(createGame(),'b',{type:'resign'}).result.winner,'w');
 });
 test('random cards distinct and invalid chosen abilities rejected',()=>{for(let i=0;i<25;i++){const [a,b]=drawCards('classic');assert.notEqual(a,b);}assert.throws(()=>drawCards('classic',{w:'fiveAhead'}));});
+test('private view preserves authoritative moves under hidden opponent powers',()=>{
+ let g=pos('doubleMove','queenRule',{a1:'wk',h8:'bk',h7:'bq',h6:'wr'});g.abilities.b.active=true;g=applyAction(g,'w',{type:'ability'});
+ const view=publicGame(g,'w');assert.equal(view.abilities.b.id,'hidden');assert.deepEqual(movesFor(view,sq('h6')),movesFor(g,sq('h6')));assert(!movesFor(view,sq('h6')).some(m=>m.to===sq('h7')));assert.deepEqual(movesFor(view,sq('h7')),[]);
+ g=pos('spaceTravel','queenRule',{a1:'wk',h8:'bk',d4:'bq',a8:'wr'});g.abilities.b.active=true;
+ assert.deepEqual(abilityTargets(publicGame(g,'w'),'w',sq('a8')),abilityTargets(g,'w',sq('a8')));
+});
+test('equality does not win at six and its description hides the threshold',()=>{
+ let g=pos('equality','necro',{a1:'wk',h8:'bk',b4:'wn',e4:'wr'});g.abilities.w.castleCount=5;
+ g=applyAction(g,'w',{type:'ability',from:sq('b4'),to:sq('e4')});assert.equal(g.abilities.w.castleCount,6);assert.equal(g.result,null);assert(!/7|10|승리/.test(cardInfo('equality').description));
+});

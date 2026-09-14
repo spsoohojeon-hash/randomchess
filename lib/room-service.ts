@@ -6,7 +6,7 @@ const alphabet="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const randomCode=()=>{const nums=new Uint8Array(6);crypto.getRandomValues(nums);return Array.from(nums,n=>alphabet[n%alphabet.length]).join("");};
 const digest=async(s:string)=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s))),n=>n.toString(16).padStart(2,"0")).join("");
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
-function view(row:Row,side:Side){return {code:row.code,side,game:publicGame(JSON.parse(row.game)),version:row.version,waiting:!row.black_token,pool:row.pool,rematch:JSON.parse(row.rematch),expiresAt:row.expires_at};}
+function view(row:Row,side:Side){return {code:row.code,side,game:publicGame(JSON.parse(row.game),side),version:row.version,waiting:!row.black_token,pool:row.pool,rematch:JSON.parse(row.rematch),expiresAt:row.expires_at};}
 async function body(req:Request){const txt=await req.text();if(txt.length>5000)throw new Error("요청이 너무 큽니다.");const p=JSON.parse(txt);if(!p||typeof p!=="object"||Array.isArray(p))throw new Error("요청 내용을 확인해 주세요.");return p;}
 
 export async function roomApi(db:D1Database,req:Request,code?:string):Promise<Response>{

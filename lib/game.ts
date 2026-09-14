@@ -11,7 +11,7 @@ export const CARDS: Card[] = [
   { id:"wildHorse",name:"존나 야생마",short:"나이트, 더 멀리 뛰다",description:"발동 이후 내 나이트의 이동이 3×2 또는 2×3 점프로 바뀝니다. 중간 기물을 뛰어넘습니다. 원본 파일 기준이며 기존 2×1 이동을 대체합니다. 발동은 턴을 쓰지 않습니다.",mode:"once",classic:true,icon:"horse" },
   { id:"spaceTravel",name:"우주여행",short:"적의 코너에서 어디로든",description:"백은 a8·h8, 흑은 a1·h1에 있는 내 기물을 원하는 칸으로 이동합니다. 적 기물은 잡을 수 있지만 킹과 승패를 결정하는 기물은 잡을 수 없습니다. 무제한, 한 턴을 사용합니다.",mode:"repeat",classic:true,icon:"orbit" },
   { id:"doubleMove",name:"더블무브",short:"한 턴에 두 번의 기회",description:"이번 턴에 두 번 이동합니다. 같은 기물을 두 번 움직여도 됩니다. 두 이동 모두 상대 킹과 승패를 결정하는 기물을 잡을 수 없습니다. 한 판에 1회.",mode:"once",classic:true,icon:"zap" },
-  { id:"equality",name:"평등국가",short:"모든 기물에게 캐슬링을",description:"같은 가로줄에서 사이에 빈칸 2개가 있는 내 기물 둘을 고릅니다. 처음 고른 기물은 안쪽으로 2칸, 두 번째도 안쪽으로 2칸 이동합니다. 한 턴을 사용하며 10회 성공하면 즉시 승리합니다.",mode:"repeat",classic:true,icon:"equal" },
+  { id:"equality",name:"평등국가",short:"모든 기물에게 캐슬링을",description:"같은 가로줄에서 사이에 빈칸 2개가 있는 내 기물 둘을 고릅니다. 처음 고른 기물은 안쪽으로 2칸, 두 번째도 안쪽으로 2칸 이동합니다. 한 턴을 사용합니다.",mode:"repeat",classic:true,icon:"equal" },
   { id:"reactionary",name:"반동분자",short:"왕이 죽어도 끝나지 않는다",description:"내 킹이 잡힐 때까지 원래 킹과 양쪽 룩을 한 번도 움직이지 않았다면, 원래 자리의 살아 있는 룩을 왕룩으로 지정합니다. 왕룩 포획 또는 상대 행동 후 위협 3회 누적 시 패배합니다.",mode:"passive",classic:true,icon:"flag" },
   { id:"exorcism",name:"퇴마(물리)",short:"비숍 앞을 쓸어버리다",description:"내 비숍 바로 앞줄의 왼쪽·정면·오른쪽 3칸에 있는 기물을 모두 제거합니다. 아군과 킹도 포함합니다. 비숍은 움직이지 않습니다. 1회, 한 턴을 사용합니다.",mode:"once",classic:true,icon:"cross" },
   { id:"kingReturn",name:"왕의 귀환",short:"모든 것을 왕에게",description:"내 킹·폰을 제외한 기물을 전부 희생합니다. 나이트·비숍 3, 룩 5, 퀸 9점. 3–6점: 비숍+나이트 15회, 7–10점: 퀸 5회, 11–14점: 퀸 10회, 15–18점: 퀸 15회, 19–22점: 퀸+나이트 15회. 23점 이상이면 즉시 패배. 남은 횟수는 킹을 움직일 때 감소합니다. 발동은 턴을 쓰지 않습니다.",mode:"once",classic:true,icon:"crown" },
@@ -25,16 +25,17 @@ export const CARDS: Card[] = [
   { id:"fiveAhead",name:"5수 앞",short:"선택을 뒤집는 결말",description:"시작할 때 상대가 승리할 색을 선택합니다. 실제 승자는 선택과 반대가 됩니다. 즉시 대국이 끝나는 이벤트 능력입니다. 둘 다 시작 이벤트면 백의 능력을 먼저 처리합니다.",mode:"passive",classic:false,icon:"eye" },
   { id:"conscienceTest",name:"양심테스트",short:"상대에게 맡기는 결말",description:"시작할 때 상대가 승리할 색을 선택합니다. 고른 색이 그대로 승리합니다. 즉시 대국이 끝나는 이벤트 능력입니다. 둘 다 시작 이벤트면 백의 능력을 먼저 처리합니다.",mode:"passive",classic:false,icon:"heart" },
 ];
-export const cardInfo = (id: CardId) => CARDS.find(c => c.id === id)!;
+export const cardInfo = (id: CardId | "hidden") => id === "hidden" ? {...CARDS[0], name:"비공개", short:"상대 능력", description:"상대의 능력은 공개되지 않습니다.", icon:"eye"} : CARDS.find(c => c.id === id)!;
 export const other = (s: Side): Side => s === "w" ? "b" : "w";
 export const sideName = (s: Side) => s === "w" ? "백" : "흑";
 export const kindName: Record<Kind,string> = {p:"폰",n:"나이트",b:"비숍",r:"룩",q:"퀸",k:"킹"};
 export const square = (i: number) => `${"abcdefgh"[i % 8]}${8 - Math.floor(i / 8)}`;
 export function indexOf(s: string): number { if(!/^[a-h][1-8]$/.test(s)) throw new Error("올바른 칸을 입력해 주세요."); return (8-Number(s[1]))*8+"abcdefgh".indexOf(s[0]); }
-export type Ability = { id:CardId; uses:number; active:boolean; castleCount:number; eligible:boolean; threats:number; rookId:string|null; power:null|{mode:"bn"|"q"|"qn";left:number;score:number} };
+export type Ability = { id:CardId|"hidden"; uses:number; active:boolean; castleCount:number; eligible:boolean; threats:number; rookId:string|null; power:null|{mode:"bn"|"q"|"qn";left:number;score:number} };
 export type Move = { from:number; to:number; special?:"castle"|"ep"; rookFrom?:number; rookTo?:number; capturedAt?:number };
 export type Log = { n:number; side:Side; text:string; ability?:boolean; from?:number; to?:number };
 export type Core = {
+  onlineView?: {side:Side;moves:Record<number,Move[]>;targets:Record<string,number[]>;threats:number[]};
   board:(Piece|null)[]; turn:Side; ply:number; abilities:Record<Side,Ability>;
   captured:Record<Side,Piece[]>; phase:"play"|"reaction"|"choice"|"duel"|"over";
   doubleLeft:number; ep:null|{target:number;pawn:number;for:Side}; ban:Record<Side,Move|null>;
@@ -90,6 +91,7 @@ export function isRoyal(g:Core,p:Piece):boolean {
   return p.kind==="k";
 }
 export function movesFor(g:Core,from:number,attacks=false):Move[] {
+  if(g.onlineView)return attacks?[]:g.onlineView.moves[from]??[];
   const p=g.board[from];if(!p)return [];
   const a=g.abilities[p.color],r=Math.floor(from/8),c=from%8,out:Move[]=[];
   const add=(nr:number,nc:number,extra:Partial<Move>={})=>{
@@ -134,13 +136,14 @@ export function movesFor(g:Core,from:number,attacks=false):Move[] {
   });
 }
 export function attacked(g:Core,to:number,by:Side):boolean {return g.board.some((p,i)=>p?.color===by&&movesFor(g,i,true).some(m=>m.to===to));}
-export function threatened(g:Core,s:Side):number[] {return g.board.flatMap((p,i)=>p?.color===s&&isRoyal(g,p)&&attacked(g,i,other(s))?[i]:[]);}
+export function threatened(g:Core,s:Side):number[] {if(g.onlineView)return s===g.onlineView.side?g.onlineView.threats:[];return g.board.flatMap((p,i)=>p?.color===s&&isRoyal(g,p)&&attacked(g,i,other(s))?[i]:[]);}
 export function kingScore(g:Core,s:Side):number {return g.board.reduce((v,p)=>v+(p?.color===s&&p.kind!=="p"?values[p.kind]:0),0);}
 export function exorcismTargets(g:Core,from:number):number[] {
   const p=g.board[from];if(!p)return [];const r=Math.floor(from/8)+(p.color==="w"?-1:1),c=from%8;
   return [-1,0,1].map(dc=>({r,c:c+dc})).filter(x=>x.r>=0&&x.r<8&&x.c>=0&&x.c<8).map(x=>x.r*8+x.c);
 }
 export function abilityTargets(g:Core,s:Side,from?:number):number[] {
+  if(g.onlineView)return s===g.onlineView.side?g.onlineView.targets[from===undefined?"start":String(from)]??[]:[];
   const id=g.abilities[s].id;
   if(id==="necro"){
     const ki=g.board.findIndex(p=>p?.color===s&&p.kind==="k");if(ki<0)return [];const r=Math.floor(ki/8),c=ki%8;
@@ -281,7 +284,7 @@ export function applyAction(previous:Game,by:Side,action:Action):Game {
       assert(validSquare(action.to)&&abilityTargets(g,by,action.from).includes(action.to),"사이에 빈칸 2개가 있는 같은 줄의 내 기물이 필요합니다.");
       const p=g.board[action.from]!,q=g.board[action.to]!,dir=Math.sign(action.to-action.from);
       g.board[action.from]=null;g.board[action.to]=null;g.board[action.from+dir*2]=p;g.board[action.from+dir]=q;markMoved(g,p);markMoved(g,q);a.castleCount++;consumes=true;
-      if(a.castleCount>=10)end(g,by,"평등국가 · 캐슬링 10회 성공");
+      if(a.castleCount>=7)end(g,by,"평등국가 · 히든 승리");
     }else throw new Error("자동 발동 능력입니다.");
     a.uses++;g.lastAction="ability";record(g,by,`${cardInfo(a.id).name}${action.from!==undefined?" · "+square(action.from):""}${action.to!==undefined?" → "+square(action.to):""}`,true);
     if(consumes){g.ep=null;g.ban[by]=null;if(!g.result)afterAction(g,by,fallenQueens);}
@@ -303,8 +306,17 @@ export function applyAction(previous:Game,by:Side,action:Action):Game {
   g.undo.push({by,move,before:snapshot});g.undo=g.undo.slice(-4);afterAction(g,by,fallenQueens);
   g.revision=previous.revision+1;return g;
 }
-export function publicGame(g:Game):Game {
+export function publicGame(g:Game,viewer?:Side):Game {
   const out=clone(g);if(out.duel)out.duel.picks={w:null,b:null};
+  if(viewer){
+    const opponent=other(viewer),hidden=g.abilities[opponent];
+    out.onlineView={side:viewer,moves:{},targets:{start:abilityTargets(g,viewer)},threats:threatened(g,viewer)};
+    g.board.forEach((p,i)=>{if(p?.color===viewer){out.onlineView!.moves[i]=movesFor(g,i);out.onlineView!.targets[String(i)]=abilityTargets(g,viewer,i);}});
+    out.abilities[opponent]={id:"hidden",uses:0,active:false,castleCount:0,eligible:false,threats:0,rookId:null,power:null};
+    out.log=out.log.map(entry=>({...entry,text:entry.ability&&(entry.side===opponent||entry.text.includes(cardInfo(hidden.id).name)||hidden.id==="reactionary"&&entry.text.includes("왕룩"))?"능력 관련 행동":entry.text}));
+    if(out.result&&(out.result.reason.includes(cardInfo(hidden.id).name)||hidden.id==="reactionary"&&out.result.reason.includes("왕룩")))out.result.reason="능력 효과로 대국이 종료되었습니다.";
+    if(out.pending&&out.pending.chooser!==viewer)out.pending.options=[];
+  }
   // Clients receive availability metadata, never a state snapshot they can send back.
   out.undo=out.undo.map(h=>({by:h.by,move:h.move,before:null as unknown as Core}));return out;
 }
