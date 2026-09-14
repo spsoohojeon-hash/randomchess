@@ -55,3 +55,10 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{cursor:default;o
 
 /* Keep rules and controls readable on small displays. */
 .card-description,.rule-cards p,.basic-rules p,.field label,.input-label,.setup-intro{font-size:14px}.field-help,.under-button,.card-condition,.card-owner,.card-mode,.card-main p,.passive-state,.live-state,.eyebrow,.card-top span,.rule-cards small,.rule-card-heading>span,.app-footer,.resume-button{font-size:12px}.card-top{flex-wrap:wrap}.ability-choices .ability-select{font-size:14px}.board-frame{scroll-margin-top:16px}
+
+/* Compact headings */
+.board-heading{margin-bottom:12px}
+.board-heading h1{font-size:20px;margin:0}
+.setup-panel h2{font-size:18px;margin:0 0 14px}
+.control-column{padding-top:0}
+@media(max-width:760px){.board-heading h1{font-size:18px}.setup-panel h2{font-size:18px}}
