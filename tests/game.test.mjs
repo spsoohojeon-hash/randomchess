@@ -8,9 +8,9 @@ test('standard opening, rejected turns and invalid moves leave source unchanged'
  assert.throws(()=>applyAction(g,'b',{type:'move',from:sq('e7'),to:sq('e5')}));assert.throws(()=>step(g,'e2','e5'));assert.equal(g.revision,0);
  const h=step(g,'e2','e4');assert.equal(h.turn,'b');assert.equal(h.board[sq('e4')].kind,'p');assert(g.board[sq('e2')]);
 });
-test('castling moves both pieces, never through an attacked square',()=>{
+test('castling moves both pieces and ignores attacked squares',()=>{
  let g=pos('necro','necro',{e1:'wk',h1:'wr',e8:'bk'});g=step(g,'e1','g1');assert.equal(g.board[sq('f1')].kind,'r');assert.equal(g.board[sq('g1')].kind,'k');assert.equal(g.board[sq('h1')],null);
- const h=pos('necro','necro',{e1:'wk',h1:'wr',e8:'bk',f8:'br'});assert(!movesFor(h,sq('e1')).some(m=>m.to===sq('g1')));
+ const h=pos('necro','necro',{e1:'wk',h1:'wr',e8:'bk',f8:'br'});assert(movesFor(h,sq('e1')).some(m=>m.to===sq('g1')));
 });
 test('en passant removes adjacent pawn and expires after the reply',()=>{
  let g=createGame();for(const [a,b]of[['e2','e4'],['a7','a6'],['e4','e5'],['d7','d5']])g=step(g,a,b);

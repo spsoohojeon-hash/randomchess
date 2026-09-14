@@ -35,7 +35,7 @@ export type Ability = { id:CardId|"hidden"; uses:number; active:boolean; castleC
 export type Move = { from:number; to:number; special?:"castle"|"ep"; rookFrom?:number; rookTo?:number; capturedAt?:number };
 export type Log = { n:number; side:Side; text:string; ability?:boolean; from?:number; to?:number };
 export type Core = {
-  onlineView?: {side:Side;moves:Record<number,Move[]>;targets:Record<string,number[]>;threats:number[]};
+  onlineView?: {side:Side;moves:Record<number,Move[]>;targets:Record<string,number[]>};
   board:(Piece|null)[]; turn:Side; ply:number; abilities:Record<Side,Ability>;
   captured:Record<Side,Piece[]>; phase:"play"|"reaction"|"choice"|"duel"|"over";
   doubleLeft:number; ep:null|{target:number;pawn:number;for:Side}; ban:Record<Side,Move|null>;
@@ -120,11 +120,11 @@ export function movesFor(g:Core,from:number,attacks=false):Move[] {
     if(a.id==="queenRule"&&a.active)slide(kingSteps);else jump(kingSteps);
     if(a.power&&a.power.left>0){slide(a.power.mode==="bn"?diag:kingSteps);if(a.power.mode!=="q")jump(knight);}
     const home=p.color==="w"?60:4;
-    if(!attacks&&!p.moved&&from===home&&!(a.id==="queenRule"&&a.active)&&!attacked(g,from,other(p.color))){
+    if(!attacks&&!p.moved&&from===home&&!(a.id==="queenRule"&&a.active)){
       for(const [rc,dir] of [[0,-1],[7,1]]){
         const ri=r*8+rc,rook=g.board[ri];if(!rook||rook.kind!=="r"||rook.color!==p.color||rook.moved)continue;
         let free=true;for(let cc=c+dir;cc!==rc;cc+=dir)if(g.board[r*8+cc])free=false;
-        if(free&&!attacked(g,from+dir,other(p.color))&&!attacked(g,from+2*dir,other(p.color)))add(r,c+2*dir,{special:"castle",rookFrom:ri,rookTo:from+dir});
+        if(free)add(r,c+2*dir,{special:"castle",rookFrom:ri,rookTo:from+dir});
       }
     }
   }
@@ -136,7 +136,7 @@ export function movesFor(g:Core,from:number,attacks=false):Move[] {
   });
 }
 export function attacked(g:Core,to:number,by:Side):boolean {return g.board.some((p,i)=>p?.color===by&&movesFor(g,i,true).some(m=>m.to===to));}
-export function threatened(g:Core,s:Side):number[] {if(g.onlineView)return s===g.onlineView.side?g.onlineView.threats:[];return g.board.flatMap((p,i)=>p?.color===s&&isRoyal(g,p)&&attacked(g,i,other(s))?[i]:[]);}
+export function threatened(g:Core,s:Side):number[] {return g.board.flatMap((p,i)=>p?.color===s&&isRoyal(g,p)&&attacked(g,i,other(s))?[i]:[]);}
 export function kingScore(g:Core,s:Side):number {return g.board.reduce((v,p)=>v+(p?.color===s&&p.kind!=="p"?values[p.kind]:0),0);}
 export function exorcismTargets(g:Core,from:number):number[] {
   const p=g.board[from];if(!p)return [];const r=Math.floor(from/8)+(p.color==="w"?-1:1),c=from%8;
