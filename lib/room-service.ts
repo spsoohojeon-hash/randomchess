@@ -1,12 +1,13 @@
-import { applyAction, createGame, drawCards, publicGame } from "./game.ts";
-import type { Game, Side, Action } from "./game.ts";
+import { applyAction, createGame, drawCards, publicGame, normalizeCardPool } from "./game.ts";
+import type { Game, Side, Action, CardPool } from "./game.ts";
 
-type Row = {code:string;white_token:string;black_token:string|null;game:string;version:number;pool:"classic"|"all";last_request:string|null;rematch:string;created_at:number;expires_at:number};
+type Row = {code:string;white_token:string;black_token:string|null;game:string;version:number;pool:string;last_request:string|null;rematch:string;created_at:number;expires_at:number};
 const alphabet="ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 const randomCode=()=>{const nums=new Uint8Array(6);crypto.getRandomValues(nums);return Array.from(nums,n=>alphabet[n%alphabet.length]).join("");};
 const digest=async(s:string)=>Array.from(new Uint8Array(await crypto.subtle.digest("SHA-256",new TextEncoder().encode(s))),n=>n.toString(16).padStart(2,"0")).join("");
 const json=(data:unknown,status=200)=>Response.json(data,{status,headers:{"Cache-Control":"no-store","X-Content-Type-Options":"nosniff"}});
-function view(row:Row,side:Side){return {code:row.code,side,game:publicGame(JSON.parse(row.game),side),version:row.version,waiting:!row.black_token,pool:row.pool,rematch:JSON.parse(row.rematch),expiresAt:row.expires_at};}
+function storedPool(value:string):CardPool{return normalizeCardPool(value==="all"||value==="classic"?value:JSON.parse(value));}
+function view(row:Row,side:Side){return {code:row.code,side,game:publicGame(JSON.parse(row.game),side),version:row.version,waiting:!row.black_token,pool:storedPool(row.pool),rematch:JSON.parse(row.rematch),expiresAt:row.expires_at};}
 async function body(req:Request){const txt=await req.text();if(txt.length>5000)throw new Error("요청이 너무 큽니다.");const p=JSON.parse(txt);if(!p||typeof p!=="object"||Array.isArray(p))throw new Error("요청 내용을 확인해 주세요.");return p;}
 
 export async function roomApi(db:D1Database,req:Request,code?:string):Promise<Response>{
@@ -14,12 +15,13 @@ export async function roomApi(db:D1Database,req:Request,code?:string):Promise<Re
     if(req.method!=="GET"&&req.headers.get("origin")&&req.headers.get("origin")!==new URL(req.url).origin)return json({error:"요청 출처를 확인해 주세요."},403);
     if(!code){
       if(req.method!=="POST")return json({error:"지원하지 않는 요청입니다."},405);
-      const p=await body(req);if(p.pool!=="classic"&&p.pool!=="all")return json({error:"능력 묶음을 선택해 주세요."},400);
+      const p=await body(req);let pool:CardPool;
+      try{pool=normalizeCardPool(p.pool);}catch{return json({error:"능력을 1개 이상 중복 없이 선택해 주세요."},400);}
       const token=crypto.randomUUID()+crypto.randomUUID(),hash=await digest(token),now=Date.now();
-      const game=createGame(...drawCards(p.pool));
+      const game=createGame(...drawCards(pool));
       for(let attempt=0;attempt<4;attempt++){
         const roomCode=randomCode();
-        const res=await db.prepare("INSERT OR IGNORE INTO chess_rooms (code, white_token, game, pool, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)").bind(roomCode,hash,JSON.stringify(game),p.pool,now,now+7*86400000).run();
+        const res=await db.prepare("INSERT OR IGNORE INTO chess_rooms (code, white_token, game, pool, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)").bind(roomCode,hash,JSON.stringify(game),pool==="all"?pool:JSON.stringify(pool),now,now+7*86400000).run();
         if(res.meta.changes){const row=await db.prepare("SELECT * FROM chess_rooms WHERE code = ?").bind(roomCode).first<Row>();return json({...view(row!,"w"),token},201);}
       }return json({error:"방을 만들지 못했습니다. 다시 시도해 주세요."},503);
     }
@@ -49,7 +51,7 @@ export async function roomApi(db:D1Database,req:Request,code?:string):Promise<Re
     if(p.type==="rematch"){
       if(game.phase!=="over")return json({error:"대국이 끝난 뒤 다시 할 수 있습니다."},400);
       if(!rematch.includes(side))rematch.push(side);
-      if(rematch.length===2){game=createGame(...drawCards(row.pool));game.revision=JSON.parse(row.game).revision+1;rematch=[];}
+      if(rematch.length===2){game=createGame(...drawCards(storedPool(row.pool)));game.revision=JSON.parse(row.game).revision+1;rematch=[];}
     }else if(p.type==="action"){
       try{game=applyAction(game,side,p.action as Action);}catch(e){return json({error:e instanceof Error?e.message:"둘 수 없는 수입니다."},400);}
     }else return json({error:"지원하지 않는 동작입니다."},400);
