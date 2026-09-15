@@ -57,6 +57,20 @@ button,input{font:inherit}button{cursor:pointer}button:disabled{cursor:default;o
 .card-description,.rule-cards p,.basic-rules p,.field label,.input-label,.setup-intro{font-size:14px}.field-help,.under-button,.card-condition,.card-owner,.card-mode,.card-main p,.passive-state,.live-state,.eyebrow,.card-top span,.rule-cards small,.rule-card-heading>span,.app-footer,.resume-button{font-size:12px}.card-top{flex-wrap:wrap}.ability-choices .ability-select{font-size:14px}.board-frame{scroll-margin-top:16px}
 
 /* Compact headings */
+.board-with-ammo{display:grid;grid-template-columns:minmax(0,1fr);align-items:stretch;gap:8px}
+.board-with-ammo.has-ammo{grid-template-columns:42px minmax(0,1fr)}
+.board-with-ammo+.player-bar{margin-top:10px}
+.ammo-rail{display:flex;flex-direction:column;justify-content:center;gap:16px;min-width:0}
+.ammo-counter{display:flex;flex-direction:column;align-items:center;gap:6px;background:#1b242c;border:1px solid #465244;border-radius:8px;padding:10px 2px;color:#d7eea7}
+.ammo-counter>span{font-size:11px}.ammo-counter strong{font-size:22px;line-height:1.2;font-variant-numeric:tabular-nums}.ammo-counter small{font-size:11px;color:#95a18f}
+.ammo-rounds{display:grid;grid-template-columns:repeat(2,7px);gap:4px}.ammo-rounds i{width:7px;height:16px;border:1px solid #65715b;border-radius:4px 4px 2px 2px;background:#29322a}.ammo-rounds .loaded{background:#d7ff63;border-color:#d7ff63;box-shadow:0 0 5px #d7ff6333}.ammo-full{color:#eaffaa}
+.piece.rainbow-piece{stroke-width:2px;filter:drop-shadow(0 0 3px #a7f5ff);animation:rainbow-glow 3s ease-in-out infinite}
+@keyframes rainbow-glow{0%,100%{filter:drop-shadow(0 0 2px #ff72b5)}33%{filter:drop-shadow(0 0 4px #89ffbd)}66%{filter:drop-shadow(0 0 4px #91b8ff)}}
+.burrow-mark{position:absolute;bottom:3px;left:3px;font-size:10px;padding:1px 4px;border-radius:4px;color:#f1e3ff;background:#493458;z-index:5;pointer-events:none}
+.piece-form{position:absolute;bottom:2px;right:3px;font-size:17px;z-index:4;color:#edffbd;text-shadow:0 1px 3px #15221b;pointer-events:none}
+.general-mark{position:absolute;top:2px;left:3px;font-size:15px;color:#ffdb74;z-index:4;text-shadow:0 1px 3px #182018;pointer-events:none}
+.extra-controls,.burst-controls{display:flex;align-items:center;justify-content:space-between;gap:10px;margin-top:8px;padding:9px 12px;border:1px solid #637847;border-radius:8px;background:#283420;color:#d8edb6;font-size:13px}.burst-controls{flex-wrap:wrap}.burst-controls .secondary-button{min-height:36px;font-size:13px;padding:6px 12px}
+@media(max-width:410px){.board-with-ammo.has-ammo{grid-template-columns:34px minmax(0,1fr);gap:5px}.ammo-counter strong{font-size:18px}.ammo-counter>span{font-size:10px}.ammo-rounds{gap:3px}.ammo-rounds i{height:13px}.extra-controls,.burst-controls{font-size:12px}}
 .board-heading{margin-bottom:12px}
 .board-heading h1{font-size:20px;margin:0}
 .setup-panel h2{font-size:18px;margin:0 0 14px}
