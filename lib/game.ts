@@ -8,7 +8,7 @@ export type Piece = { id: string; color: Side; kind: Kind; moved: boolean; form?
 export type Card = { id: CardId; name: string; short: string; description: string; mode: "passive" | "once" | "repeat" | "twice" | "thrice"; classic: boolean; icon: string };
 export const CARDS: Card[] = [
   { id:"necro",name:"네크로맨서",short:"쓰러진 적을 아군으로",description:"내가 잡은 적 기물 하나를 내 킹 주변 8칸 중 빈칸에 아군으로 부활시킵니다. 마지막 줄의 폰은 승격합니다. 1회, 한 턴을 사용합니다.",mode:"once",classic:true,icon:"skull" },
-  { id:"wildHorse",name:"존나 야생마",short:"나이트, 더 멀리 뛰다",description:"발동 이후 내 나이트의 이동이 3×2 또는 2×3 점프로 바뀝니다. 중간 기물을 뛰어넘습니다. 원본 파일 기준이며 기존 2×1 이동을 대체합니다. 발동은 턴을 쓰지 않습니다.",mode:"once",classic:true,icon:"horse" },
+  { id:"wildHorse",name:"존나 야생마",short:"나이트, 더 멀리 뛰다",description:"발동 이후 내 나이트의 이동이 3×2 또는 2×3 점프로 바뀝니다. 중간 기물을 뛰어넘습니다. 기존 2×1 이동을 대체합니다. 발동은 턴을 쓰지 않습니다.",mode:"once",classic:true,icon:"horse" },
   { id:"spaceTravel",name:"우주여행",short:"적의 코너에서 어디로든",description:"백은 a8·h8, 흑은 a1·h1에 있는 내 기물을 원하는 칸으로 이동합니다. 적 기물은 잡을 수 있지만 킹과 승패를 결정하는 기물은 잡을 수 없습니다. 무제한, 한 턴을 사용합니다.",mode:"repeat",classic:true,icon:"orbit" },
   { id:"doubleMove",name:"더블무브",short:"한 턴에 두 번의 기회",description:"이번 턴에 두 번 이동합니다. 같은 기물을 두 번 움직여도 됩니다. 두 이동 모두 상대 킹과 승패를 결정하는 기물을 잡을 수 없습니다. 한 판에 1회.",mode:"once",classic:true,icon:"zap" },
   { id:"equality",name:"평등국가",short:"모든 기물에게 캐슬링을",description:"같은 가로줄에서 사이에 빈칸 2개가 있는 내 기물 둘을 고릅니다. 처음 고른 기물은 안쪽으로 2칸, 두 번째도 안쪽으로 2칸 이동합니다. 한 턴을 사용합니다.",mode:"repeat",classic:true,icon:"equal" },
@@ -22,8 +22,8 @@ export const CARDS: Card[] = [
   { id:"quickDuel",name:"속전속결",short:"체스판 대신 가위바위보",description:"체스를 멈추고 가위바위보로 승부합니다. 무승부를 제외하고 먼저 두 번 이기는 쪽이 이 대국의 승자입니다. 양쪽 선택이 끝나기 전에는 패를 공개하지 않습니다.",mode:"once",classic:false,icon:"hand" },
   { id:"queenRule",name:"이 국가는 여왕이 통치한다",short:"왕과 여왕의 역할 교체",description:"발동하면 내 킹은 퀸처럼, 내 퀸은 킹처럼 움직입니다. 이후 내 퀸 중 하나라도 잡히면 패배하며 내 킹은 잡혀도 계속합니다. 살아 있는 킹과 퀸이 있어야 발동됩니다. 발동은 턴을 쓰지 않습니다.",mode:"once",classic:false,icon:"queen" },
   { id:"versatile",name:"다재다능",short:"룩의 새로운 가능성",description:"내 룩은 비숍·나이트·킹의 이동을 모두 사용할 수 있습니다. 기존 룩의 직선 장거리 이동은 없어집니다. 시작부터 자동 적용됩니다.",mode:"passive",classic:false,icon:"shuffle" },
-  { id:"fiveAhead",name:"5수 앞",short:"선택을 뒤집는 결말",description:"시작할 때 상대가 승리할 색을 선택합니다. 실제 승자는 선택과 반대가 됩니다. 즉시 대국이 끝나는 이벤트 능력입니다. 둘 다 시작 이벤트면 백의 능력을 먼저 처리합니다.",mode:"passive",classic:false,icon:"eye" },
-  { id:"conscienceTest",name:"양심테스트",short:"상대에게 맡기는 결말",description:"시작할 때 상대가 승리할 색을 선택합니다. 고른 색이 그대로 승리합니다. 즉시 대국이 끝나는 이벤트 능력입니다. 둘 다 시작 이벤트면 백의 능력을 먼저 처리합니다.",mode:"passive",classic:false,icon:"heart" },
+  { id:"fiveAhead",name:"5수 앞",short:"선택을 뒤집는 결말",description:"시작할 때 상대가 승리할 색을 선택합니다. 실제 승자는 선택과 반대가 됩니다.",mode:"passive",classic:false,icon:"eye" },
+  { id:"conscienceTest",name:"양심테스트",short:"상대에게 맡기는 결말",description:"시작할 때 상대가 승리할 색을 선택합니다. 고른 색이 그대로 승리합니다.",mode:"passive",classic:false,icon:"heart" },
   { id:"burrow",name:"버로우",short:"원하는 순간 다시 등장",description:"킹을 제외한 내 기물 하나를 제자리에서 숨깁니다. 숨은 기물은 이동하거나 잡힐 수 없습니다. 그 칸은 다른 기물이 사용할 수 있으며, 비어 있을 때만 다시 나올 수 있습니다. 숨기기 1회, 숨기기와 나오기 모두 턴 소모 없음.",mode:"once",classic:false,icon:"eye" },
   { id:"shiningKnight",name:"나는 내가 빛나는 나이트인 줄 알았어요",short:"가로막은 적을 뛰어넘기",description:"버튼으로 발동합니다. 내 기물 하나가 직선·대각선으로 상대 기물을 개수 제한 없이 뛰어넘어 빈칸에 착지합니다. 아군을 넘거나 착지하며 잡을 수 없습니다. 3회, 이동에 한 턴을 사용합니다.",mode:"thrice",classic:false,icon:"horse" },
   { id:"forwardPawns",name:"전진밖에 모르는 병신들",short:"앞으로 잡는 폰",description:"발동 후 내 폰은 대각선 대신 바로 앞 한 칸의 상대 기물을 잡습니다. 효과는 계속 유지됩니다. 턴 소모 없음.",mode:"once",classic:false,icon:"zap" },
@@ -35,6 +35,25 @@ export const CARDS: Card[] = [
   { id:"mounted",name:"백마 탄 왕자님, 흑마 탄 임금님",short:"나이트와 영구 융합",description:"백은 내 나이트와 룩, 흑은 내 나이트와 킹을 영구 융합합니다. 나이트가 대상 칸으로 이동하며 두 기물의 이동을 모두 얻습니다. 융합은 1회, 턴 소모 없음. 흑은 게임당 2번 나이트 이동 한 번과 킹 이동 한 번을 한 턴에 연속 사용합니다. 흑마 탄 임금님만 남은 뒤 상대 행동으로 체크를 5번 받으면 흑이 패배합니다.",mode:"repeat",classic:false,icon:"horse" },
 ];
 export const cardInfo = (id: CardId | "hidden") => id === "hidden" ? {...CARDS[0], name:"비공개", short:"상대 능력", description:"상대의 능력은 공개되지 않습니다.", icon:"eye"} : CARDS.find(c => c.id === id)!;
+// The handbook describes actions without revealing special victory conditions.
+const handbookOverrides:Partial<Record<CardId,string>>={
+  reactionary:"내 킹이 잡힐 때까지 원래 킹과 양쪽 룩을 움직이지 않았다면, 원래 자리의 살아 있는 룩 하나를 왕룩으로 지정합니다.",
+  kingReturn:"내 킹·폰을 제외한 기물을 전부 희생합니다. 나이트·비숍 3점, 룩 5점, 퀸 9점. 3–6점: 비숍+나이트 15회. 7–10점: 퀸 5회. 11–14점: 퀸 10회. 15–18점: 퀸 15회. 19–22점: 퀸+나이트 15회. 횟수는 킹 이동 시 감소합니다. 발동은 턴 소모 없음.",
+  quickDuel:"체스를 멈추고 가위바위보를 진행합니다. 양쪽이 선택하기 전에는 패를 공개하지 않습니다.",
+  queenRule:"내 킹은 퀸처럼, 내 퀸은 킹처럼 움직이며 퀸이 왕의 역할을 맡습니다. 살아 있는 킹과 퀸이 필요합니다. 턴 소모 없음.",
+  fiveAhead:"대국 시작 시 상대에게 색을 선택하게 합니다.",
+  conscienceTest:"대국 시작 시 상대에게 색을 선택하게 합니다.",
+  mounted:"내 나이트가 룩(백) 또는 킹(흑)의 칸으로 이동해 영구 융합합니다. 두 기물의 이동을 모두 얻습니다. 융합은 1회, 턴 소모 없음. 흑은 게임당 2번 나이트 이동 한 번과 킹 이동 한 번을 한 턴에 연속 사용할 수 있습니다.",
+};
+export const handbookDescription=(id:CardId)=>handbookOverrides[id]??cardInfo(id).description;
+export type CardPool="all"|CardId[];
+export function normalizeCardPool(pool:unknown):CardPool {
+  if(pool==="all")return "all";
+  // Existing saved games and rooms retain their old pool as an explicit selection.
+  if(pool==="classic")return CARDS.filter(c=>c.classic).map(c=>c.id);
+  if(!Array.isArray(pool)||pool.length<1||pool.length>CARDS.length||pool.some(id=>typeof id!=="string"||!CARDS.some(c=>c.id===id))||new Set(pool).size!==pool.length)throw new Error("능력을 1개 이상 중복 없이 선택해 주세요.");
+  return CARDS.filter(c=>pool.includes(c.id)).map(c=>c.id);
+}
 export const other = (s: Side): Side => s === "w" ? "b" : "w";
 export const sideName = (s: Side) => s === "w" ? "백" : "흑";
 export const kindName: Record<Kind,string> = {p:"폰",n:"나이트",b:"비숍",r:"룩",q:"퀸",k:"킹"};
@@ -87,12 +106,12 @@ export function createGame(white:CardId="wildHorse",black:CardId="necro"):Game {
   }
   return g;
 }
-export function drawCards(pool:"classic"|"all",requested?:{w?:CardId|"random";b?:CardId|"random"}):[CardId,CardId] {
-  const ids=CARDS.filter(c=>pool==="all"||c.classic).map(c=>c.id);
+export function drawCards(pool:CardPool|"classic",requested?:{w?:CardId|"random";b?:CardId|"random"}):[CardId,CardId] {
+  const normalized=normalizeCardPool(pool),ids=normalized==="all"?CARDS.map(c=>c.id):normalized;
   const random=(arr:CardId[])=>{const n=new Uint32Array(1);crypto.getRandomValues(n);return arr[n[0]%arr.length];};
   for(const s of ["w","b"] as Side[])if(requested?.[s]&&requested[s]!=="random"&&!ids.includes(requested[s] as CardId))throw new Error("선택한 능력이 이 카드 묶음에 없습니다.");
-  const w=requested?.w&&requested.w!=="random"?requested.w:random(ids.filter(id=>id!==requested?.b));
-  const b=requested?.b&&requested.b!=="random"?requested.b:random(ids.filter(id=>id!==w));
+  const w=requested?.w&&requested.w!=="random"?requested.w:random(ids.length===1?ids:ids.filter(id=>id!==requested?.b));
+  const b=requested?.b&&requested.b!=="random"?requested.b:random(ids.length===1?ids:ids.filter(id=>id!==w));
   return [w,b];
 }
 export function isRoyal(g:Core,p:Piece):boolean {

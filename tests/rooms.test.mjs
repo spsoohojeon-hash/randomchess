@@ -80,3 +80,26 @@ test('gatling burst consumes server ammo once, hides it from opponent and persis
  const replay=await call(db,w.code,w.token,payload);assert.equal(replay.version,fired.version);assert.equal(replay.game.captured.w.length,2);
  const enemy=await call(db,w.code,b.token);assert(!JSON.stringify(enemy.game).includes('gatling'));assert(!JSON.stringify(enemy.game).includes('ammo'));assert.deepEqual(enemy.game.board,fired.game.board);db.sql.close();
 });
+
+test('selected online pool persists through join, reconnect and rematch; clients cannot replace it',async()=>{
+ const db=database(),pool=['burrow','gatling','general'];
+ const w=await call(db,null,null,{pool});assert.equal(w.status,201);assert.deepEqual(w.pool,['burrow','general','gatling']);
+ const b=await call(db,w.code,null,{type:'join'});assert.deepEqual(b.pool,w.pool);
+ for(const player of [w,b]){const r=await call(db,w.code,player.token);assert(pool.includes(r.game.abilities[player.side].id));assert.equal(r.game.abilities[player.side==='w'?'b':'w'].id,'hidden');}
+ const over=await call(db,w.code,w.token,{type:'action',version:b.version,requestId:'poolResign01',action:{type:'resign'}});
+ const ask=await call(db,w.code,w.token,{type:'rematch',version:over.version,requestId:'poolRematchW',pool:['necro']});
+ const again=await call(db,w.code,b.token,{type:'rematch',version:ask.version,requestId:'poolRematchB',pool:'all'});
+ assert.equal(again.status,200);assert.equal(again.game.phase,'play');assert.deepEqual(again.pool,w.pool);
+ const stored=JSON.parse(db.sql.prepare('SELECT game FROM chess_rooms WHERE code = ?').get(w.code).game);
+ assert(pool.includes(stored.abilities.w.id));assert(pool.includes(stored.abilities.b.id));assert.notEqual(stored.abilities.w.id,stored.abilities.b.id);db.sql.close();
+});
+
+test('invalid online pools return 400 without creating rooms; singleton and legacy rooms work',async()=>{
+ const db=database();
+ for(const pool of [[],['necro','necro'],['invalid'],{},null])assert.equal((await call(db,null,null,{pool})).status,400);
+ assert.equal(db.sql.prepare('SELECT COUNT(*) AS n FROM chess_rooms').get().n,0);
+ const w=await call(db,null,null,{pool:['nothing']});const b=await call(db,w.code,null,{type:'join'});
+ assert.equal(w.game.abilities.w.id,'nothing');assert.equal(b.game.abilities.b.id,'nothing');
+ db.sql.prepare('UPDATE chess_rooms SET pool = ? WHERE code = ?').run('classic',w.code);
+ const old=await call(db,w.code,w.token);assert.equal(old.status,200);assert.equal(old.pool.length,8);db.sql.close();
+});

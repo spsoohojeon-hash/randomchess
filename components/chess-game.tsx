@@ -6,11 +6,11 @@ import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/compone
 import { AlertDialog, AlertDialogContent, AlertDialogTitle, AlertDialogDescription, AlertDialogFooter, AlertDialogCancel, AlertDialogAction } from "@/components/ui/alert-dialog";
 import { Tabs, TabsList, TabsTrigger, TabsContent } from "@/components/ui/tabs";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { CARDS, cardInfo, createGame, drawCards, applyAction, movesFor, abilityTargets, abilityError, exorcismTargets, kingScore, sideName, other, kindName, square, isRoyal, generalAssignment, gatlingImpacts, blastArea } from "@/lib/game";
-import type { Game, Piece, Side, Kind, CardId, Action, Gesture } from "@/lib/game";
+import { CARDS, cardInfo, createGame, drawCards, applyAction, movesFor, abilityTargets, abilityError, exorcismTargets, kingScore, sideName, other, kindName, square, isRoyal, generalAssignment, gatlingImpacts, blastArea, normalizeCardPool, handbookDescription } from "@/lib/game";
+import type { Game, Piece, Side, Kind, CardId, Action, Gesture, CardPool } from "@/lib/game";
 
 type Session={code:string;token:string;side:Side};
-type Room={code:string;side:Side;game:Game;version:number;waiting:boolean;pool:"classic"|"all";rematch:Side[];expiresAt:number};
+type Room={code:string;side:Side;game:Game;version:number;waiting:boolean;pool:CardPool;rematch:Side[];expiresAt:number};
 type Stage={side:Side;from?:number;capture?:number};
 type Confirm={title:string;description:string;label:string;run:()=>void;danger?:boolean};
 const pieces={k:ChessKing,q:ChessQueen,r:ChessRook,b:ChessBishop,n:ChessKnight,p:ChessPawn};
@@ -27,8 +27,10 @@ const initial=createGame();
 
 export default function ChessGame(){
   const [game,setGame]=useState<Game>(initial),[active,setActive]=useState(false),[loaded,setLoaded]=useState(false);
-  const [setupMode,setSetupMode]=useState("local"),[pool,setPool]=useState<"classic"|"all">("classic");
-  const [chosen,setChosen]=useState<{w:CardId|"random";b:CardId|"random"}>({w:"random",b:"random"});
+  const [setupMode,setSetupMode]=useState("local"),[pool,setPool]=useState<"all"|"selected">("all");
+  const [selectedCards,setSelectedCards]=useState<CardId[]>(CARDS.map(c=>c.id));
+  const activePool:CardPool=pool==="all"?"all":selectedCards;
+  const poolEmpty=pool==="selected"&&selectedCards.length===0;
   const [session,setSession]=useState<Session|null>(null),[room,setRoom]=useState<Room|null>(null),[joinCode,setJoinCode]=useState("");
   const [savedSession,setSavedSession]=useState<Session|null>(null),[selected,setSelected]=useState<number|null>(null),[stage,setStage]=useState<Stage|null>(null);
   const [focusSquare,setFocusSquare]=useState(52),[flip,setFlip]=useState(false),[rules,setRules]=useState(false),[busy,setBusy]=useState(false);
@@ -48,13 +50,19 @@ export default function ChessGame(){
   useEffect(()=>{
     try{
       const saved=JSON.parse(localStorage.getItem("randomchess.local.v2")||"null");
-      if(saved?.format===2&&saved.game?.board?.length===64&&saved.game?.abilities?.w&&saved.game?.abilities?.b&&Array.isArray(saved.game.undo)) {setCurrent(saved.game);setActive(true);setPool(saved.pool==="all"?"all":"classic");}
+      if(saved?.format===2&&saved.game?.board?.length===64&&saved.game?.abilities?.w&&saved.game?.abilities?.b&&Array.isArray(saved.game.undo)) {setCurrent(saved.game);setActive(true);const previousPool=normalizeCardPool(saved.pool??"all");setPool(previousPool==="all"?"all":"selected");if(Array.isArray(previousPool))setSelectedCards(previousPool);}
+      const pref=JSON.parse(localStorage.getItem("randomchess.pool.v1")||"null");
+      if(pref&&["all","selected"].includes(pref.mode)&&Array.isArray(pref.cards)){
+        const cards=pref.cards.length?normalizeCardPool(pref.cards):[];
+        if(Array.isArray(cards)){setPool(pref.mode);setSelectedCards(cards);}
+      }
       const s=JSON.parse(sessionStorage.getItem("randomchess.room.v2")||localStorage.getItem("randomchess.room.v2")||"null");if(s?.code&&s?.token&&["w","b"].includes(s.side))setSavedSession(s);
       const invite=new URLSearchParams(location.search).get("room");if(invite&&/^[A-Z2-9]{6}$/.test(invite)){setJoinCode(invite);setSetupMode("online");setActive(false);}
       setSound(localStorage.getItem("randomchess.sound")==="yes");
     }catch{}setLoaded(true);
   },[setCurrent]);
-  useEffect(()=>{if(loaded&&active&&!online)try{localStorage.setItem("randomchess.local.v2",JSON.stringify({format:2,game,pool}));}catch{}},[game,active,online,loaded,pool]);
+  useEffect(()=>{if(loaded&&active&&!online)try{localStorage.setItem("randomchess.local.v2",JSON.stringify({format:2,game,pool:activePool}));}catch{}},[game,active,online,loaded,activePool]);
+  useEffect(()=>{if(loaded)try{localStorage.setItem("randomchess.pool.v1",JSON.stringify({mode:pool,cards:selectedCards}));}catch{}},[loaded,pool,selectedCards]);
   useEffect(()=>{
     if(!session||!active)return;let stop=false,timer:ReturnType<typeof setTimeout>;let controller:AbortController|null=null;
     const poll=async()=>{
@@ -92,14 +100,14 @@ export default function ChessGame(){
     try{void Promise.resolve(ctx.registerTool(tool,{signal:lifecycle.signal})).catch(()=>{});}catch{}
     return()=>lifecycle.abort();
   },[]);
-  const startLocal=()=>{try{setCurrent(createGame(...drawCards(pool,chosen)));setSession(null);sessionRef.current=null;setRoom(null);roomRef.current=null;setActive(true);setFlip(false);setError("");}catch(e){setError((e as Error).message);}};
+  const startLocal=()=>{try{setCurrent(createGame(...drawCards(activePool)));setSession(null);sessionRef.current=null;setRoom(null);roomRef.current=null;setActive(true);setFlip(false);setError("");}catch(e){setError((e as Error).message);}};
   const connectRoom=async(type:"create"|"join"|"resume")=>{
     if(busyRef.current)return;busyRef.current=true;setBusy(true);setError("");
     try{
       const saved=type==="resume"?savedSession:null;
       const code=type==="resume"?saved?.code:joinCode.trim().toUpperCase();
       if(type!=="create"&&!/^[A-Z2-9]{6}$/.test(code||""))throw new Error("방 코드 6자리를 입력해 주세요.");
-      const res=await fetch(type==="create"?"/api/rooms":`/api/rooms/${code}`,{method:type==="resume"?"GET":"POST",headers:{"Content-Type":"application/json",...(saved?{Authorization:`Bearer ${saved.token}`}:{})},...(type==="resume"?{}:{body:JSON.stringify(type==="create"?{pool}:{type:"join"})}),signal:AbortSignal.timeout(15000)});
+      const res=await fetch(type==="create"?"/api/rooms":`/api/rooms/${code}`,{method:type==="resume"?"GET":"POST",headers:{"Content-Type":"application/json",...(saved?{Authorization:`Bearer ${saved.token}`}:{})},...(type==="resume"?{}:{body:JSON.stringify(type==="create"?{pool:activePool}:{type:"join"})}),signal:AbortSignal.timeout(15000)});
       const data=await res.json() as Room & {error?:string;token:string};if(!res.ok)throw new Error(data.error||"방에 연결하지 못했습니다.");
       const s:Session={code:data.code,side:data.side,token:saved?.token??data.token};
       roomRef.current=null;setSession(s);sessionRef.current=s;setSavedSession(s);setActive(true);setFlip(s.side==="b");receive(data);
@@ -170,7 +178,6 @@ export default function ChessGame(){
   const stageId=stage?game.abilities[stage.side].id:null;
   const stagePrompt=stage?stageId==="necro"?"부활시킬 킹 주변의 빈칸을 골라 주세요.":stageId==="exorcism"||stageId==="shallNotPass"?"능력을 사용할 내 비숍을 골라 주세요.":stageId==="burrow"?"숨길 내 기물을 골라 주세요.":stageId==="armyForward"?stage.from===undefined?"희생할 첫 번째 룩을 고르세요.":"희생할 두 번째 룩을 고르세요.":stageId==="general"&&generalAssignment(game,stage.side)?`휘하 ${generalAssignment(game,stage.side)==="n"?"나이트":"비숍"}를 지정하세요.`:stageId==="gatling"?stage.from===undefined?"발사할 퀸을 고르세요.":"명중 대상을 선택하거나 8발 범위 사격을 사용하세요.":stageId==="mounted"?stage.from===undefined?"융합할 나이트를 고르세요.":`융합할 ${stage.side==="w"?"룩":"킹"}을 고르세요.`:stage.from===undefined?"빛나는 내 기물을 먼저 골라 주세요.":"빛나는 도착칸을 골라 주세요.":"";
   const status=!active?"대국을 준비하세요":waiting?"상대의 참가를 기다리는 중":game.result?game.result.winner==="draw"?"무승부":`${sideName(game.result.winner)} 승리`:game.phase==="reaction"?`${sideName(game.pending?.chooser??game.turn)} · 왕룩을 선택하세요`:game.phase==="choice"?`${sideName(game.pending?.chooser??game.turn)} · 결과를 선택하세요`:game.phase==="duel"?"속전속결 · 가위바위보":`${sideName(game.turn)}의 차례${game.doubleLeft?` · ${game.doubleLeft}회 이동 남음`:""}`;
-  const chooseOptions=(side:Side)=><Select value={chosen[side]} onValueChange={v=>setChosen({...chosen,[side]:v as CardId|"random"})}><SelectTrigger aria-label={`${sideName(side)} 능력 선택`} className="ability-select"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="random">랜덤 추첨</SelectItem>{CARDS.filter(c=>pool==="all"||c.classic).map(c=><SelectItem key={c.id} value={c.id}>{c.name}</SelectItem>)}</SelectContent></Select>;
   const cardPanel=(side:Side)=>{
     if(online&&side!==mySide)return <article className="ability-card" key={side}><div className="card-top"><span className="card-owner">{sideName(side)}의 능력</span></div><h3>비공개</h3></article>;
     const a=game.abilities[side];if(a.id==="hidden")return null;
@@ -179,7 +186,7 @@ export default function ChessGame(){
     const label=a.burrow?"버로우 해제":a.id==="general"?generalAssignment(game,side)?`휘하 ${generalAssignment(game,side)==="n"?"나이트":"비숍"} 지정`:"장군·휘하 위치 교환":a.id==="mounted"?a.fusion?"연속 이동 사용":"융합":a.id==="armyForward"&&a.uses===1?"룩 2개 희생 후 재발동":"능력 사용";
     return <article className={`ability-card ${side===game.turn?"current-card":""} ${used?"used-card":""}`} key={side}>
       <div className="card-top"><span className="card-owner"><i className={`side-token token-${side}`}/>{sideName(side)}의 능력{online&&side===mySide?" · 나":""}</span><span className="card-mode">{modeLabels[info.mode]}</span></div>
-      <div className="card-main"><div className="ability-emblem"><AbilityIcon id={a.id}/></div><div><h3>{info.name}</h3><p>{info.short}</p></div></div>
+      <div className="card-main"><div className="ability-emblem"><AbilityIcon id={a.id}/></div><div><h3>{info.name}</h3></div></div>
       <p className="card-description">{info.description}</p>
       {a.power&&<div className="ability-stat">왕 강화 <strong>{a.power.left}회 남음</strong></div>}
       {a.burrow&&<div className="ability-stat">{square(a.burrow.at)} · {kindName[a.burrow.piece.kind]}<strong>{game.board[a.burrow.at]?"나오기 불가":"숨는 중"}</strong></div>}
@@ -224,12 +231,13 @@ export default function ChessGame(){
         {error&&<div className="error-banner" role="alert"><span>{error}</span><button aria-label="오류 알림 닫기" onClick={()=>setError("")}><X size={16}/></button></div>}
         {!active?<section className="setup-panel"><h2>대국 설정</h2>
           <Tabs value={setupMode} onValueChange={setSetupMode}><TabsList className="mode-tabs"><TabsTrigger value="local"><Users size={17}/>로컬 2인</TabsTrigger><TabsTrigger value="online"><Globe2 size={17}/>온라인</TabsTrigger></TabsList>
-            <div className="field"><label>능력 묶음</label><Select value={pool} onValueChange={v=>{setPool(v as "classic"|"all");setChosen({w:"random",b:"random"});}}><SelectTrigger className="ability-select" aria-label="능력 묶음"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="classic">기본 8종</SelectItem><SelectItem value="all">전체 {CARDS.length}종</SelectItem></SelectContent></Select><p className="field-help">{pool==="all"?"즉시 승패를 정하는 ‘5수 앞’과 ‘양심테스트’도 포함해요.":"처음 만들었던 능력 8종으로 대국해요."}</p></div>
-            <TabsContent value="local"><div className="ability-choices"><div className="field"><label><i className="side-token token-w"/>백의 능력</label>{chooseOptions("w")}</div><div className="field"><label><i className="side-token token-b"/>흑의 능력</label>{chooseOptions("b")}</div></div><button className="primary-button start-button" onClick={startLocal} disabled={!loaded}><Dices size={20}/>능력 뽑고 시작<ArrowUpRight size={21}/></button><p className="under-button">한 기기에서 번갈아 플레이 · 진행 자동 저장</p></TabsContent>
-            <TabsContent value="online"><button className="primary-button" disabled={busy} onClick={()=>void connectRoom("create")}>{busy?<LoaderCircle className="spin" size={18}/>:<Globe2 size={18}/>}새 방 만들기<ArrowUpRight size={20}/></button><div className="or-divider"><span/>또는 코드로 참가<span/></div><form onSubmit={e=>{e.preventDefault();void connectRoom("join");}}><label className="input-label" htmlFor="room-code">방 코드</label><div className="join-row"><input id="room-code" value={joinCode} onChange={e=>setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z2-9]/g,"").slice(0,6))} maxLength={6} placeholder="ABC123" autoComplete="off" spellCheck={false}/><button className="secondary-button" disabled={busy||joinCode.length!==6}>참가</button></div></form><p className="field-help">방장은 백, 참가자는 흑. 양쪽 능력은 랜덤으로 뽑아요.</p>{savedSession&&<button className="resume-button" disabled={busy} onClick={()=>void connectRoom("resume")}><RotateCw size={15}/>{savedSession.code} 방으로 돌아가기</button>}</TabsContent>
-          </Tabs><div className="rule-note"><ChessKing size={20}/><p>킹을 잡으면 승리.<br/><span>능력별 특별 승리 조건도 확인해 봐.</span></p></div><button className="text-link" onClick={()=>setRules(true)}>{CARDS.length}가지 능력 살펴보기<ChevronRight size={16}/></button>
+            <div className="field"><label>능력 묶음</label><Select value={pool} onValueChange={v=>setPool(v as "all"|"selected")}><SelectTrigger className="ability-select" aria-label="능력 묶음"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">전체능력묶음</SelectItem><SelectItem value="selected">선택능력묶음</SelectItem></SelectContent></Select></div>
+            {pool==="selected"&&<fieldset className="pool-picker"><legend>선택 능력 · {selectedCards.length}/{CARDS.length}</legend><div className="pool-picker-actions"><button type="button" onClick={()=>setSelectedCards(CARDS.map(c=>c.id))}>전체 선택</button><button type="button" onClick={()=>setSelectedCards([])}>전체 해제</button></div><div className="pool-options">{CARDS.map(card=><label className="pool-option" key={card.id}><input type="checkbox" checked={selectedCards.includes(card.id)} onChange={e=>{const checked=e.currentTarget.checked;setSelectedCards(previous=>checked?[...previous,card.id]:previous.filter(id=>id!==card.id));}}/><span>{card.name}</span></label>)}</div>{poolEmpty&&<p className="field-help" role="status">능력을 1개 이상 선택하세요.</p>}</fieldset>}
+            <TabsContent value="local"><button className="primary-button start-button" onClick={startLocal} disabled={!loaded||poolEmpty}><Dices size={20}/>랜덤으로 시작<ArrowUpRight size={21}/></button></TabsContent>
+            <TabsContent value="online"><button className="primary-button" disabled={busy||poolEmpty} onClick={()=>void connectRoom("create")}>{busy?<LoaderCircle className="spin" size={18}/>:<Globe2 size={18}/>}새 방 만들기<ArrowUpRight size={20}/></button><div className="or-divider"><span/>또는 코드로 참가<span/></div><form onSubmit={e=>{e.preventDefault();void connectRoom("join");}}><label className="input-label" htmlFor="room-code">방 코드</label><div className="join-row"><input id="room-code" value={joinCode} onChange={e=>setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z2-9]/g,"").slice(0,6))} maxLength={6} placeholder="ABC123" autoComplete="off" spellCheck={false}/><button className="secondary-button" disabled={busy||joinCode.length!==6}>참가</button></div></form>{savedSession&&<button className="resume-button" disabled={busy} onClick={()=>void connectRoom("resume")}><RotateCw size={15}/>{savedSession.code} 방으로 돌아가기</button>}</TabsContent>
+          </Tabs><button className="text-link" onClick={()=>setRules(true)}>{CARDS.length}가지 능력 살펴보기<ChevronRight size={16}/></button>
         </section>:<>
-          <section className="match-status"><div className="status-top"><span className="eyebrow">{online?`ROOM ${session.code}`:"LOCAL · 2 PLAYERS"}</span><span className="live-state">{busy?<LoaderCircle size={14} className="spin"/>:online&&!connection?<WifiOff size={14}/>:<span className="live-dot"/>}{busy?"전송 중":online?connection?"연결됨":"재연결 중":"대국 중"}</span></div><h2 aria-live="polite">{status}</h2>{online&&<button className="room-copy" onClick={()=>void copyCode()}>{copied?<Check size={15}/>:<Copy size={15}/>} {copied?"복사했어":"방 코드 복사"}</button>}{waiting&&<p className="field-help">상대가 온라인 메뉴에서 이 코드를 입력하면 시작해요. 방은 7일간 유지돼요.</p>}</section>
+          <section className="match-status"><div className="status-top"><span className="eyebrow">{online?`ROOM ${session.code}`:"LOCAL · 2 PLAYERS"}</span><span className="live-state">{busy?<LoaderCircle size={14} className="spin"/>:online&&!connection?<WifiOff size={14}/>:<span className="live-dot"/>}{busy?"전송 중":online?connection?"연결됨":"재연결 중":"대국 중"}</span></div><h2 aria-live="polite">{status}</h2>{online&&<button className="room-copy" onClick={()=>void copyCode()}>{copied?<Check size={15}/>:<Copy size={15}/>} {copied?"복사했어":"방 코드 복사"}</button>}{waiting&&<p className="field-help">상대에게 방 코드를 알려 주세요.</p>}</section>
           {stage&&<div className="selection-banner"><Zap size={18}/><span>{stagePrompt}</span><button aria-label="능력 선택 취소" onClick={()=>{setStage(null);setSelected(null);}}><X size={18}/></button></div>}
           {game.drawOffer&&<div className="draw-offer"><p>{sideName(game.drawOffer)}이 무승부를 제안했어요.</p>{(!online||mySide!==game.drawOffer)?<div><button className="secondary-button" onClick={()=>void send({type:"acceptDraw"},other(game.drawOffer!))}>수락</button><button className="quiet-button" onClick={()=>void send({type:"declineDraw"},other(game.drawOffer!))}>계속하기</button></div>:<span>상대의 응답을 기다리는 중</span>}</div>}
           <Tabs defaultValue="abilities" className="play-tabs"><TabsList className="mode-tabs"><TabsTrigger value="abilities"><Zap size={16}/>능력</TabsTrigger><TabsTrigger value="history"><Rewind size={16}/>기보 <span className="count-pill">{game.log.length}</span></TabsTrigger></TabsList><TabsContent value="abilities" className="ability-stack">{online?<>{cardPanel(mySide)}{cardPanel(other(mySide))}</>:<>{cardPanel("w")}{cardPanel("b")}</>}</TabsContent><TabsContent value="history"><div className="move-history">{game.log.length?game.log.slice().reverse().map(l=><div className={`history-row ${l.ability?"history-ability":""}`} key={l.n}><span>{String(l.n).padStart(2,"0")}</span><i className={`side-token token-${l.side}`}/><p>{l.text}</p>{l.ability&&<Zap size={14}/>}</div>):<div className="history-empty"><ChessPawn/><p>첫 수를 기다리고 있어요.</p><span>이동과 능력 사용이 여기에 기록돼요.</span></div>}</div></TabsContent></Tabs>
@@ -238,8 +246,8 @@ export default function ChessGame(){
         </>}
       </aside>
     </main>
-    <footer className="app-footer"><span>RANDOM CHESS <b>02</b></span><button onClick={()=>setRules(true)}>플레이 규칙<BookOpen size={14}/></button></footer>
-    <Dialog open={rules} onOpenChange={setRules}><DialogContent className="rules-dialog"><DialogTitle>능력 도감 <span className="accent-text">{CARDS.length}</span></DialogTitle><DialogDescription>능력은 시작할 때 각자 하나씩 받습니다. 온라인에서는 자신의 능력만 확인할 수 있습니다. 랜덤 추첨은 서로 다른 능력을 배정합니다.</DialogDescription><div className="rules-scroll"><div className="basic-rules"><h3>플레이 규칙</h3><p>일반 이동·캐슬링·앙파상·프로모션을 사용합니다. 체크와 체크메이트를 사용하지 않습니다. 상대 킹을 직접 잡거나 능력의 특별 승리 조건을 만족하면 승리합니다. 킹은 공격받는 칸으로 움직일 수 있습니다. 캐슬링은 움직이지 않은 킹·룩과 비어 있는 경로만 필요하며, 공격받는 칸을 지나가도 됩니다.</p><p>능력 설명에 ‘한 턴’이라고 적힌 행동은 일반 이동을 대신합니다. 판을 뒤집어도 차례는 바뀌지 않습니다. 기권하거나 양쪽이 무승부에 동의하면 대국이 끝납니다. 로컬 대국은 이 기기에 저장되고, 온라인 방은 7일간 유지됩니다.</p><p>원본에서 뜻이 엇갈리던 상호작용은 통일했습니다. 더블무브·우주여행으로 왕룩과 ‘이 국가는 여왕이 통치한다’의 퀸도 잡을 수 없습니다. 되감기 사용 횟수는 되돌아가지 않습니다. 야생마는 최신 원본 코드의 3×2 이동을 사용합니다.</p></div><div className="rule-cards">{CARDS.map(c=><article key={c.id}><div className="rule-card-heading"><AbilityIcon id={c.id}/><h3>{c.name}</h3><span>{c.classic?"기본":"확장"}</span></div><p>{c.description}</p><small>{modeLabels[c.mode]}</small></article>)}</div></div></DialogContent></Dialog>
+    <footer className="app-footer"><span>RANDOM CHESS <b>02</b></span><button onClick={()=>setRules(true)}>능력 도감<BookOpen size={14}/></button></footer>
+    <Dialog open={rules} onOpenChange={setRules}><DialogContent className="rules-dialog"><DialogTitle>능력 도감 <span className="accent-text">{CARDS.length}</span></DialogTitle><DialogDescription className="sr-only">능력별 설명</DialogDescription><div className="rules-scroll"><div className="rule-cards">{CARDS.map(card=><article key={card.id}><div className="rule-card-heading"><AbilityIcon id={card.id}/><h3>{card.name}</h3></div><p>{handbookDescription(card.id)}</p></article>)}</div></div></DialogContent></Dialog>
     <AlertDialog open={!!confirm} onOpenChange={v=>{if(!v)setConfirm(null);}}><AlertDialogContent className="game-dialog"><AlertDialogTitle>{confirm?.title}</AlertDialogTitle><AlertDialogDescription>{confirm?.description}</AlertDialogDescription><AlertDialogFooter><AlertDialogCancel>취소</AlertDialogCancel><AlertDialogAction className={confirm?.danger?"danger-button":""} onClick={()=>{const run=confirm?.run;setConfirm(null);run?.();}}>{confirm?.label}</AlertDialogAction></AlertDialogFooter></AlertDialogContent></AlertDialog>
     <Dialog open={!!promotion} onOpenChange={v=>{if(!v)setPromotion(null);}}><DialogContent className="game-dialog"><DialogTitle>폰 프로모션</DialogTitle><DialogDescription>어떤 기물로 승격할까요?</DialogDescription><div className="promotion-options">{(["q","r","b","n"] as Kind[]).map(kind=><button key={kind} onClick={()=>{const p=promotion!;setPromotion(null);void send({...p.action,promotion:kind},p.side);}}><PieceIcon piece={{kind,color:promotion?.side??"w"}}/><span>{kindName[kind]}</span></button>)}</div></DialogContent></Dialog>
     <Dialog open={necro!==null} onOpenChange={v=>{if(!v)setNecro(null);}}><DialogContent className="game-dialog"><DialogTitle>누구를 부활시킬까?</DialogTitle><DialogDescription>잡은 상대 기물을 아군으로 되살립니다.</DialogDescription><div className="necro-options">{necro&&game.captured[necro].map((p,i)=><button key={i} onClick={()=>{setStage({side:necro,capture:i});setNecro(null);}}><PieceIcon piece={{kind:p.kind,color:necro}} small/>{kindName[p.kind]}</button>)}</div></DialogContent></Dialog>
