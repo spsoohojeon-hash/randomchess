@@ -20,7 +20,7 @@ export const CARDS: Card[] = [
   { id:"temusanTimeStone",name:"테무산 타임스톤",short:"내 실수를 되감다",description:"내 가장 최근 이동 직전으로 돌아갑니다. 그 이후 상대의 이동·능력 효과도 함께 돌아갑니다. 2회. 되감기 능력의 사용 횟수는 복구되지 않습니다. 승패가 결정된 뒤에는 사용할 수 없습니다.",mode:"twice",classic:false,icon:"rewind" },
   { id:"extremeEfficiency",name:"극한의 효율",short:"킹 하나, 퀸 셋",description:"시작 배치가 킹 1개와 퀸 3개로 바뀝니다. 퀸은 내 뒷줄 a·d·h열에 놓이고 나머지 기물은 없습니다. 시작 시 자동 적용됩니다.",mode:"passive",classic:false,icon:"triangle" },
   { id:"quickDuel",name:"속전속결",short:"체스판 대신 가위바위보",description:"체스를 멈추고 가위바위보로 승부합니다. 무승부를 제외하고 먼저 두 번 이기는 쪽이 이 대국의 승자입니다. 양쪽 선택이 끝나기 전에는 패를 공개하지 않습니다.",mode:"once",classic:false,icon:"hand" },
-  { id:"queenRule",name:"여왕 통치",short:"왕과 여왕의 역할 교체",description:"발동하면 내 킹은 퀸처럼, 내 퀸은 킹처럼 움직입니다. 이후 내 퀸 중 하나라도 잡히면 패배하며 내 킹은 잡혀도 계속합니다. 살아 있는 킹과 퀸이 있어야 발동됩니다. 발동은 턴을 쓰지 않습니다.",mode:"once",classic:false,icon:"queen" },
+  { id:"queenRule",name:"이 국가는 여왕이 통치한다",short:"왕과 여왕의 역할 교체",description:"발동하면 내 킹은 퀸처럼, 내 퀸은 킹처럼 움직입니다. 이후 내 퀸 중 하나라도 잡히면 패배하며 내 킹은 잡혀도 계속합니다. 살아 있는 킹과 퀸이 있어야 발동됩니다. 발동은 턴을 쓰지 않습니다.",mode:"once",classic:false,icon:"queen" },
   { id:"versatile",name:"다재다능",short:"룩의 새로운 가능성",description:"내 룩은 비숍·나이트·킹의 이동을 모두 사용할 수 있습니다. 기존 룩의 직선 장거리 이동은 없어집니다. 시작부터 자동 적용됩니다.",mode:"passive",classic:false,icon:"shuffle" },
   { id:"fiveAhead",name:"5수 앞",short:"선택을 뒤집는 결말",description:"시작할 때 상대가 승리할 색을 선택합니다. 실제 승자는 선택과 반대가 됩니다. 즉시 대국이 끝나는 이벤트 능력입니다. 둘 다 시작 이벤트면 백의 능력을 먼저 처리합니다.",mode:"passive",classic:false,icon:"eye" },
   { id:"conscienceTest",name:"양심테스트",short:"상대에게 맡기는 결말",description:"시작할 때 상대가 승리할 색을 선택합니다. 고른 색이 그대로 승리합니다. 즉시 대국이 끝나는 이벤트 능력입니다. 둘 다 시작 이벤트면 백의 능력을 먼저 처리합니다.",mode:"passive",classic:false,icon:"heart" },
@@ -310,7 +310,7 @@ export function publicGame(g:Game,viewer?:Side):Game {
   const out=clone(g);if(out.duel)out.duel.picks={w:null,b:null};
   if(viewer){
     const opponent=other(viewer),hidden=g.abilities[opponent];
-    out.onlineView={side:viewer,moves:{},targets:{start:abilityTargets(g,viewer)},threats:threatened(g,viewer)};
+    out.onlineView={side:viewer,moves:{},targets:{start:abilityTargets(g,viewer)}};
     g.board.forEach((p,i)=>{if(p?.color===viewer){out.onlineView!.moves[i]=movesFor(g,i);out.onlineView!.targets[String(i)]=abilityTargets(g,viewer,i);}});
     out.abilities[opponent]={id:"hidden",uses:0,active:false,castleCount:0,eligible:false,threats:0,rookId:null,power:null};
     out.log=out.log.map(entry=>({...entry,text:entry.ability&&(entry.side===opponent||entry.text.includes(cardInfo(hidden.id).name)||hidden.id==="reactionary"&&entry.text.includes("왕룩"))?"능력 관련 행동":entry.text}));
