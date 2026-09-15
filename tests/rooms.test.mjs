@@ -57,3 +57,26 @@ test('online responses keep opponent cards secret across create, join, reconnect
  const conflict=await call(db,w.code,b.token,{...payload,requestId:'privateConflict'});assert.equal(conflict.status,409);check(conflict,'b');assert(!JSON.stringify(conflict.game).includes('wildHorse'));assert(!JSON.stringify(conflict.game).includes('존나 야생마'));
  const stored=JSON.parse(db.sql.prepare('SELECT game FROM chess_rooms WHERE code = ?').get(w.code).game);assert.equal(stored.abilities.w.id,'wildHorse');assert.equal(stored.abilities.w.active,true);db.sql.close();
 });
+
+test('burrow stays secret through HTTP actions, reconnect and occupied-square rejection',async()=>{
+ const db=database();const {w,b}=await started(db);const g=createGame('burrow','gatling');
+ db.sql.prepare('UPDATE chess_rooms SET game = ? WHERE code = ?').run(JSON.stringify(g),w.code);
+ const payload={type:'action',version:1,requestId:'burrowHide001',action:{type:'ability',from:sq('b1')}};
+ const hidden=await call(db,w.code,w.token,payload);assert.equal(hidden.status,200);assert.equal(hidden.game.abilities.w.burrow.at,sq('b1'));assert.equal(hidden.game.turn,'w');
+ const opposite=await call(db,w.code,b.token);assert.equal(opposite.game.board[sq('b1')],null);assert.equal(opposite.game.abilities.w.id,'hidden');assert(!JSON.stringify(opposite.game).includes('burrow'));
+ assert.equal((await call(db,w.code,w.token,payload)).version,hidden.version);
+ const stored=JSON.parse(db.sql.prepare('SELECT game FROM chess_rooms WHERE code = ?').get(w.code).game);stored.board[sq('b1')]={id:'blocker',color:'b',kind:'r',moved:true};
+ db.sql.prepare('UPDATE chess_rooms SET game = ? WHERE code = ?').run(JSON.stringify(stored),w.code);
+ const rejected=await call(db,w.code,w.token,{type:'action',version:hidden.version,requestId:'burrowExit001',action:{type:'ability'}});assert.equal(rejected.status,400);
+ assert.equal((await call(db,w.code,w.token)).game.abilities.w.burrow.piece.kind,'n');db.sql.close();
+});
+
+test('gatling burst consumes server ammo once, hides it from opponent and persists reconnect',async()=>{
+ const db=database();const {w,b}=await started(db);const g=createGame('gatling','necro');g.board.fill(null);
+ for(const [at,p] of Object.entries({a1:'wk',h7:'bk',d4:'wq',d6:'bn',e6:'br'}))g.board[sq(at)]={id:p[0]+at,color:p[0],kind:p[1],moved:true};
+ g.abilities.w.ammo=8;db.sql.prepare('UPDATE chess_rooms SET game = ? WHERE code = ?').run(JSON.stringify(g),w.code);
+ const payload={type:'action',version:1,requestId:'gatlingBurst01',action:{type:'ability',from:sq('d4'),mode:'burst'}};
+ const fired=await call(db,w.code,w.token,payload);assert.equal(fired.status,200);assert.equal(fired.game.abilities.w.ammo,0);assert.equal(fired.game.board[sq('e6')],null);
+ const replay=await call(db,w.code,w.token,payload);assert.equal(replay.version,fired.version);assert.equal(replay.game.captured.w.length,2);
+ const enemy=await call(db,w.code,b.token);assert(!JSON.stringify(enemy.game).includes('gatling'));assert(!JSON.stringify(enemy.game).includes('ammo'));assert.deepEqual(enemy.game.board,fired.game.board);db.sql.close();
+});

@@ -2,10 +2,10 @@
 // RandomChess deliberately uses king capture rather than checkmate.
 export type Side = "w" | "b";
 export type Kind = "p" | "n" | "b" | "r" | "q" | "k";
-export type CardId = "necro" | "wildHorse" | "spaceTravel" | "doubleMove" | "equality" | "reactionary" | "exorcism" | "kingReturn" | "bombLauncher" | "noThatMove" | "temusanTimeStone" | "extremeEfficiency" | "quickDuel" | "queenRule" | "versatile" | "fiveAhead" | "conscienceTest";
+export type CardId = "necro" | "wildHorse" | "spaceTravel" | "doubleMove" | "equality" | "reactionary" | "exorcism" | "kingReturn" | "bombLauncher" | "noThatMove" | "temusanTimeStone" | "extremeEfficiency" | "quickDuel" | "queenRule" | "versatile" | "fiveAhead" | "conscienceTest" | "burrow" | "shiningKnight" | "forwardPawns" | "nothing" | "armyForward" | "general" | "gatling" | "shallNotPass" | "mounted";
 export type Gesture = "rock" | "scissors" | "paper";
-export type Piece = { id: string; color: Side; kind: Kind; moved: boolean };
-export type Card = { id: CardId; name: string; short: string; description: string; mode: "passive" | "once" | "repeat" | "twice"; classic: boolean; icon: string };
+export type Piece = { id: string; color: Side; kind: Kind; moved: boolean; form?:"prince"|"emperor" };
+export type Card = { id: CardId; name: string; short: string; description: string; mode: "passive" | "once" | "repeat" | "twice" | "thrice"; classic: boolean; icon: string };
 export const CARDS: Card[] = [
   { id:"necro",name:"네크로맨서",short:"쓰러진 적을 아군으로",description:"내가 잡은 적 기물 하나를 내 킹 주변 8칸 중 빈칸에 아군으로 부활시킵니다. 마지막 줄의 폰은 승격합니다. 1회, 한 턴을 사용합니다.",mode:"once",classic:true,icon:"skull" },
   { id:"wildHorse",name:"존나 야생마",short:"나이트, 더 멀리 뛰다",description:"발동 이후 내 나이트의 이동이 3×2 또는 2×3 점프로 바뀝니다. 중간 기물을 뛰어넘습니다. 원본 파일 기준이며 기존 2×1 이동을 대체합니다. 발동은 턴을 쓰지 않습니다.",mode:"once",classic:true,icon:"horse" },
@@ -24,6 +24,15 @@ export const CARDS: Card[] = [
   { id:"versatile",name:"다재다능",short:"룩의 새로운 가능성",description:"내 룩은 비숍·나이트·킹의 이동을 모두 사용할 수 있습니다. 기존 룩의 직선 장거리 이동은 없어집니다. 시작부터 자동 적용됩니다.",mode:"passive",classic:false,icon:"shuffle" },
   { id:"fiveAhead",name:"5수 앞",short:"선택을 뒤집는 결말",description:"시작할 때 상대가 승리할 색을 선택합니다. 실제 승자는 선택과 반대가 됩니다. 즉시 대국이 끝나는 이벤트 능력입니다. 둘 다 시작 이벤트면 백의 능력을 먼저 처리합니다.",mode:"passive",classic:false,icon:"eye" },
   { id:"conscienceTest",name:"양심테스트",short:"상대에게 맡기는 결말",description:"시작할 때 상대가 승리할 색을 선택합니다. 고른 색이 그대로 승리합니다. 즉시 대국이 끝나는 이벤트 능력입니다. 둘 다 시작 이벤트면 백의 능력을 먼저 처리합니다.",mode:"passive",classic:false,icon:"heart" },
+  { id:"burrow",name:"버로우",short:"원하는 순간 다시 등장",description:"킹을 제외한 내 기물 하나를 제자리에서 숨깁니다. 숨은 기물은 이동하거나 잡힐 수 없습니다. 그 칸은 다른 기물이 사용할 수 있으며, 비어 있을 때만 다시 나올 수 있습니다. 숨기기 1회, 숨기기와 나오기 모두 턴 소모 없음.",mode:"once",classic:false,icon:"eye" },
+  { id:"shiningKnight",name:"나는 내가 빛나는 나이트인 줄 알았어요",short:"가로막은 적을 뛰어넘기",description:"버튼으로 발동합니다. 내 기물 하나가 직선·대각선으로 상대 기물을 개수 제한 없이 뛰어넘어 빈칸에 착지합니다. 아군을 넘거나 착지하며 잡을 수 없습니다. 3회, 이동에 한 턴을 사용합니다.",mode:"thrice",classic:false,icon:"horse" },
+  { id:"forwardPawns",name:"전진밖에 모르는 병신들",short:"앞으로 잡는 폰",description:"발동 후 내 폰은 대각선 대신 바로 앞 한 칸의 상대 기물을 잡습니다. 효과는 계속 유지됩니다. 턴 소모 없음.",mode:"once",classic:false,icon:"zap" },
+  { id:"nothing",name:"진-짜 사기적인 능력",short:"무능력",description:"발동하면 내 기물의 테두리가 무지개빛으로 빛납니다. 게임 규칙에 영향을 주는 효과는 없습니다. 턴 소모 없음.",mode:"once",classic:false,icon:"shuffle" },
+  { id:"armyForward",name:"전군, 앞으로!",short:"모든 폰을 한 칸 앞으로",description:"내 모든 폰을 동시에 한 칸 전진시킵니다. 앞에 기물이 있으면 움직이지 않습니다. 첫 사용은 턴 소모 없음. 내 룩 2개를 희생하고 한 턴을 사용해 한 번 더 발동할 수 있습니다. 끝줄에 도착한 폰은 퀸으로 승격합니다.",mode:"twice",classic:false,icon:"flag" },
+  { id:"general",name:"오성장군",short:"장군과 휘하 병력",description:"처음 적을 잡은 내 폰이 장군이 됩니다. 장군·휘하의 합산 포획 1회: 기존 내 나이트를 휘하로 지정. 장군 이동 후 추가 이동 가능. 2회: 장군이 킹처럼 이동. 3회: 기존 내 비숍도 지정하며 추가 이동은 휘하 중 하나만 가능. 4회 이상: 한 턴을 써서 장군과 휘하 하나의 위치 교환. 교환은 이동으로 취급하지 않습니다. 지정은 턴 소모 없음.",mode:"repeat",classic:false,icon:"crown" },
+  { id:"gatling",name:"개틀링건",short:"폰을 탄환으로",description:"내 퀸이 적 폰 또는 아군 폰을 먹으면 탄약 1발을 얻습니다. 최대 8발. 한 턴과 1발을 써서 직선·대각선 한 방향으로 발사합니다. 8발을 모두 쓰면 8방향 동시 사격하며 각 명중 지점의 3×3 범위에 있는 적 기물을 잡습니다. 총알은 관통하지 않고 아군에 막힙니다. 팀킬은 퀸으로 아군 폰을 먹을 때만 가능합니다.",mode:"repeat",classic:false,icon:"bomb" },
+  { id:"shallNotPass",name:"You Shall Not Pass",short:"비숍과 같은 열을 제거",description:"버튼으로 내 비숍 하나를 지정해 같은 세로줄의 상대 기물을 모두 잡습니다. 중간 기물에 막히지 않으며 킹은 면역입니다. 1회, 한 턴을 사용합니다.",mode:"once",classic:false,icon:"ban" },
+  { id:"mounted",name:"백마 탄 왕자님, 흑마 탄 임금님",short:"나이트와 영구 융합",description:"백은 내 나이트와 룩, 흑은 내 나이트와 킹을 영구 융합합니다. 나이트가 대상 칸으로 이동하며 두 기물의 이동을 모두 얻습니다. 융합은 1회, 턴 소모 없음. 흑은 게임당 2번 나이트 이동 한 번과 킹 이동 한 번을 한 턴에 연속 사용합니다. 흑마 탄 임금님만 남은 뒤 상대 행동으로 체크를 5번 받으면 흑이 패배합니다.",mode:"repeat",classic:false,icon:"horse" },
 ];
 export const cardInfo = (id: CardId | "hidden") => id === "hidden" ? {...CARDS[0], name:"비공개", short:"상대 능력", description:"상대의 능력은 공개되지 않습니다.", icon:"eye"} : CARDS.find(c => c.id === id)!;
 export const other = (s: Side): Side => s === "w" ? "b" : "w";
@@ -31,12 +40,14 @@ export const sideName = (s: Side) => s === "w" ? "백" : "흑";
 export const kindName: Record<Kind,string> = {p:"폰",n:"나이트",b:"비숍",r:"룩",q:"퀸",k:"킹"};
 export const square = (i: number) => `${"abcdefgh"[i % 8]}${8 - Math.floor(i / 8)}`;
 export function indexOf(s: string): number { if(!/^[a-h][1-8]$/.test(s)) throw new Error("올바른 칸을 입력해 주세요."); return (8-Number(s[1]))*8+"abcdefgh".indexOf(s[0]); }
-export type Ability = { id:CardId|"hidden"; uses:number; active:boolean; castleCount:number; eligible:boolean; threats:number; rookId:string|null; power:null|{mode:"bn"|"q"|"qn";left:number;score:number} };
+export type Ability = { id:CardId|"hidden"; uses:number; active:boolean; castleCount:number; eligible:boolean; threats:number; rookId:string|null; power:null|{mode:"bn"|"q"|"qn";left:number;score:number}; burrow?:{piece:Piece;at:number}; ammo?:number; general?:{id:string;kills:number;knightId?:string;bishopId?:string}; fusion?:{id:string;doubleUses:number} };
 export type Move = { from:number; to:number; special?:"castle"|"ep"; rookFrom?:number; rookTo?:number; capturedAt?:number };
 export type Log = { n:number; side:Side; text:string; ability?:boolean; from?:number; to?:number };
 export type Core = {
   onlineView?: {side:Side;moves:Record<number,Move[]>;targets:Record<string,number[]>};
   board:(Piece|null)[]; turn:Side; ply:number; abilities:Record<Side,Ability>;
+  glow?:Side[];
+  extraMove?:{side:Side;kind:"general"|"mountedKnight"|"mountedKing";ids:string[]};
   captured:Record<Side,Piece[]>; phase:"play"|"reaction"|"choice"|"duel"|"over";
   doubleLeft:number; ep:null|{target:number;pawn:number;for:Side}; ban:Record<Side,Move|null>;
   result:null|{winner:Side|"draw";reason:string}; pending:null|{owner:Side;chooser:Side;options:number[]};
@@ -44,7 +55,7 @@ export type Core = {
   drawOffer:Side|null; log:Log[]; serial:number; lastAction:"move"|"ability"|null;
 };
 export type Game = Core & { revision:number; undo:{by:Side;move:Move;before:Core}[] };
-export type Action = { type:"move"|"ability"|"reaction"|"choice"|"duel"|"resign"|"draw"|"acceptDraw"|"declineDraw"; from?:number;to?:number;piece?:number;capture?:number;promotion?:Kind;choice?:Side;gesture?:Gesture };
+export type Action = { type:"move"|"ability"|"reaction"|"choice"|"duel"|"resign"|"draw"|"acceptDraw"|"declineDraw"|"skipExtra"; from?:number;to?:number;piece?:number;capture?:number;promotion?:Kind;choice?:Side;gesture?:Gesture;mode?:"shot"|"burst" };
 const values:Record<Kind,number> = {p:1,n:3,b:3,r:5,q:9,k:0};
 const clone = <T,>(x:T):T => structuredClone(x);
 const validSquare = (i:unknown): i is number => Number.isInteger(i) && Number(i)>=0 && Number(i)<64;
@@ -94,19 +105,24 @@ export function movesFor(g:Core,from:number,attacks=false):Move[] {
   if(g.onlineView)return attacks?[]:g.onlineView.moves[from]??[];
   const p=g.board[from];if(!p)return [];
   const a=g.abilities[p.color],r=Math.floor(from/8),c=from%8,out:Move[]=[];
+  if(!attacks&&g.extraMove?.side===p.color&&!g.extraMove.ids.includes(p.id))return [];
   const add=(nr:number,nc:number,extra:Partial<Move>={})=>{
     if(nr<0||nr>7||nc<0||nc>7)return;
-    const to=nr*8+nc,t=g.board[to];if(attacks||!t||t.color!==p.color)out.push({from,to,...extra});
+    const to=nr*8+nc,t=g.board[to];if(attacks||!t||t.color!==p.color||a.id==="gatling"&&p.kind==="q"&&t.kind==="p")out.push({from,to,...extra});
   };
   const jump=(steps:number[][])=>steps.forEach(([dr,dc])=>add(r+dr,c+dc));
   const slide=(dirs:number[][])=>{for(const [dr,dc] of dirs){let nr=r+dr,nc=c+dc;while(nr>=0&&nr<8&&nc>=0&&nc<8){const t=g.board[nr*8+nc];add(nr,nc);if(t)break;nr+=dr;nc+=dc;}}};
+  if(a.general?.id===p.id&&a.general.kills>=2)jump(kingSteps);
+  else if(p.form){jump(knight);if(p.form==="prince")slide(straight);else jump(kingSteps);}
+  else {
   if(p.kind==="p"){
     const dir=p.color==="w"?-1:1;
-    for(const dc of [-1,1]){
+    const forward=a.id==="forwardPawns"&&a.active;
+    for(const dc of forward?[0]:[-1,1]){
       const nr=r+dir,nc=c+dc;if(nr<0||nr>7||nc<0||nc>7)continue;
       const to=nr*8+nc,t=g.board[to];
       if(attacks||t&&t.color!==p.color)add(nr,nc);
-      else if(g.ep?.for===p.color&&g.ep.target===to&&g.board[g.ep.pawn]?.kind==="p")add(nr,nc,{special:"ep",capturedAt:g.ep.pawn});
+      else if(!forward&&g.ep?.for===p.color&&g.ep.target===to&&g.board[g.ep.pawn]?.kind==="p")add(nr,nc,{special:"ep",capturedAt:g.ep.pawn});
     }
     if(!attacks&&r+dir>=0&&r+dir<8&&!g.board[(r+dir)*8+c]){
       add(r+dir,c);if(!p.moved&&r===(p.color==="w"?6:1)&&!g.board[(r+2*dir)*8+c])add(r+2*dir,c);
@@ -128,9 +144,15 @@ export function movesFor(g:Core,from:number,attacks=false):Move[] {
       }
     }
   }
+  }
   const unique=out.filter((m,i)=>out.findIndex(n=>n.to===m.to)===i);
   if(attacks)return unique;
   return unique.filter(m=>{
+    const extra=g.extraMove;
+    if(extra?.side===p.color&&extra.kind!=="general"){
+      const dr=Math.floor(m.to/8)-r,dc=m.to%8-c;
+      if(!(extra.kind==="mountedKnight"?knight:kingSteps).some(([rr,cc])=>rr===dr&&cc===dc))return false;
+    }
     const b=g.ban[p.color];if(b&&b.from===m.from&&b.to===m.to)return false;
     const target=g.board[m.to];return !(g.doubleLeft>0&&p.color===g.turn&&target&&(target.kind==="k"||isRoyal(g,target)));
   });
@@ -142,9 +164,63 @@ export function exorcismTargets(g:Core,from:number):number[] {
   const p=g.board[from];if(!p)return [];const r=Math.floor(from/8)+(p.color==="w"?-1:1),c=from%8;
   return [-1,0,1].map(dc=>({r,c:c+dc})).filter(x=>x.r>=0&&x.r<8&&x.c>=0&&x.c<8).map(x=>x.r*8+x.c);
 }
+export function generalAssignment(g:Core,s:Side):"n"|"b"|null {
+  const a=g.abilities[s],army=a.general;
+  if(!army||!g.board.some(p=>p?.id===army.id))return null;
+  if(!army.knightId&&g.board.some(p=>p?.color===s&&p.kind==="n"&&p.id!==army.id))return "n";
+  if(army.kills>=3&&!army.bishopId&&g.board.some(p=>p?.color===s&&p.kind==="b"&&p.id!==army.id))return "b";
+  return null;
+}
+function followers(g:Core,s:Side):string[]{
+  const army=g.abilities[s].general;if(!army)return [];
+  return g.board.flatMap(p=>p?.color===s&&[army.knightId,army.bishopId].includes(p.id)?[p.id]:[]);
+}
+function jumpTargets(g:Core,from:number):number[]{
+  const p=g.board[from];if(!p)return [];
+  const out:number[]=[];
+  for(const [dr,dc] of kingSteps){
+    let r=Math.floor(from/8)+dr,c=from%8+dc,crossed=false;
+    while(r>=0&&r<8&&c>=0&&c<8){
+      const i=r*8+c,t=g.board[i];if(t?.color===p.color)break;
+      if(t)crossed=true;else if(crossed&&!(g.ban[p.color]?.from===from&&g.ban[p.color]?.to===i))out.push(i);
+      r+=dr;c+=dc;
+    }
+  }return out;
+}
+export function gatlingImpacts(g:Core,from:number):number[]{
+  const p=g.board[from];if(!p)return [];
+  const out:number[]=[];
+  for(const [dr,dc] of kingSteps){
+    let r=Math.floor(from/8)+dr,c=from%8+dc;
+    while(r>=0&&r<8&&c>=0&&c<8){const t=g.board[r*8+c];if(t){if(t.color!==p.color)out.push(r*8+c);break;}r+=dr;c+=dc;}
+  }return out;
+}
+export function blastArea(at:number):number[]{
+  const out:number[]=[];for(let dr=-1;dr<=1;dr++)for(let dc=-1;dc<=1;dc++){
+    const r=Math.floor(at/8)+dr,c=at%8+dc;if(r>=0&&r<8&&c>=0&&c<8)out.push(r*8+c);
+  }return out;
+}
 export function abilityTargets(g:Core,s:Side,from?:number):number[] {
   if(g.onlineView)return s===g.onlineView.side?g.onlineView.targets[from===undefined?"start":String(from)]??[]:[];
-  const id=g.abilities[s].id;
+  const a=g.abilities[s],id=a.id;
+  const own=(kind?:Kind)=>g.board.flatMap((p,i)=>p?.color===s&&(!kind||p.kind===kind)?[i]:[]);
+  if(id==="burrow")return a.burrow?g.board[a.burrow.at]?[]:[a.burrow.at]:own().filter(i=>!isRoyal(g,g.board[i]!)&&g.board[i]!.kind!=="k");
+  if(id==="shiningKnight")return from===undefined?own().filter(i=>jumpTargets(g,i).length):g.board[from]?.color===s?jumpTargets(g,from):[];
+  if(id==="shallNotPass")return own("b");
+  if(id==="gatling")return from===undefined?own("q").filter(i=>gatlingImpacts(g,i).length):g.board[from]?.color===s&&g.board[from]?.kind==="q"?gatlingImpacts(g,from):[];
+  if(id==="armyForward")return a.uses===1?own("r").filter(i=>i!==from):[];
+  if(id==="mounted"){
+    if(a.fusion)return [];
+    const targets=own(s==="w"?"r":"k");
+    return from===undefined?targets.length?own("n"):[]:g.board[from]?.color===s&&g.board[from]?.kind==="n"?targets:[];
+  }
+  if(id==="general"){
+    const army=a.general;if(!army||!g.board.some(p=>p?.id===army.id))return [];
+    const assign=generalAssignment(g,s);if(assign)return own(assign).filter(i=>g.board[i]!.id!==army.id);
+    if(army.kills<4||g.extraMove)return [];
+    const troops=followers(g,s);if(!troops.length)return [];
+    return from===undefined?g.board.flatMap((p,i)=>p?.id===army.id?[i]:[]):g.board[from]?.id===army.id?g.board.flatMap((p,i)=>p&&troops.includes(p.id)?[i]:[]):[];
+  }
   if(id==="necro"){
     const ki=g.board.findIndex(p=>p?.color===s&&p.kind==="k");if(ki<0)return [];const r=Math.floor(ki/8),c=ki%8;
     return kingSteps.map(([dr,dc])=>[r+dr,c+dc]).filter(([r,c])=>r>=0&&r<8&&c>=0&&c<8&&!g.board[r*8+c]).map(([r,c])=>r*8+c);
@@ -164,10 +240,17 @@ export function abilityTargets(g:Core,s:Side,from?:number):number[] {
 export function abilityError(g:Game,s:Side):string|null {
   if(g.phase!=="play")return "지금은 능력을 사용할 수 없습니다.";
   const a=g.abilities[s],info=cardInfo(a.id);
+  if(a.id==="burrow"&&a.burrow)return g.board[a.burrow.at]?"숨은 칸에 기물이 있어 나올 수 없습니다.":null;
   if(info.mode==="passive")return "조건을 만족하면 자동으로 발동합니다.";
-  if((info.mode==="once"&&a.uses>=1)||(info.mode==="twice"&&a.uses>=2))return "모두 사용했습니다.";
+  if((info.mode==="once"&&a.uses>=1)||(info.mode==="twice"&&a.uses>=2)||(info.mode==="thrice"&&a.uses>=3))return "모두 사용했습니다.";
   if(a.id==="temusanTimeStone")return g.undo.some(h=>h.by===s)?null:"되돌릴 내 이동이 없습니다.";
-  if(g.turn!==s)return "내 차례에 사용할 수 있습니다.";
+  const free=["burrow","forwardPawns","nothing"].includes(a.id)||a.id==="armyForward"&&a.uses===0||a.id==="mounted"&&!a.fusion;
+  if(g.turn!==s&&!free)return "내 차례에 사용할 수 있습니다.";
+  if(g.extraMove&&!free&&!(a.id==="general"&&generalAssignment(g,s)))return "추가 이동을 먼저 마치거나 건너뛰세요.";
+  if(a.id==="mounted"&&a.fusion)return s!=="b"?"융합을 완료했습니다.":a.fusion.doubleUses>=2?"연속 이동을 모두 사용했습니다.":!g.board.some(p=>p?.id===a.fusion!.id)?"융합 기물이 없습니다.":null;
+  if(a.id==="gatling"&&!(a.ammo??0))return "퀸으로 폰을 먹어 탄약을 충전하세요.";
+  if(a.id==="armyForward"&&a.uses===1&&abilityTargets(g,s).length<2)return "다시 발동하려면 내 룩 2개가 필요합니다.";
+  if(["burrow","shiningKnight","shallNotPass","gatling","mounted","general"].includes(a.id)&&!abilityTargets(g,s).length)return a.id==="general"?"장군의 포획 또는 지정 가능한 휘하 기물이 필요합니다.":"현재 사용할 수 있는 기물이 없습니다.";
   if(a.id==="noThatMove")return g.undo.at(-1)?.by===other(s)&&g.lastAction==="move"?null:"상대의 최근 행동이 이동이어야 합니다.";
   if(a.id==="necro"&&(!g.captured[s].length||!abilityTargets(g,s).length))return "잡은 적 기물과 킹 주변 빈칸이 필요합니다.";
   if(["spaceTravel","exorcism","equality"].includes(a.id)&&!abilityTargets(g,s).length)return "현재 사용할 수 있는 기물이 없습니다.";
@@ -176,9 +259,19 @@ export function abilityError(g:Game,s:Side):string|null {
 }
 function coreOf(g:Game):Core {const {revision,undo,...rest}=g;void revision;void undo;return clone(rest);}
 function record(g:Game,s:Side,text:string,ability=false,move?:Move){g.log.push({n:++g.serial,side:s,text,ability,from:move?.from,to:move?.to});if(g.log.length>200)g.log.shift();}
-function end(g:Game,winner:Side|"draw",reason:string){g.phase="over";g.result={winner,reason};g.pending=null;g.drawOffer=null;}
+function end(g:Game,winner:Side|"draw",reason:string){g.phase="over";g.result={winner,reason};g.pending=null;g.drawOffer=null;delete g.extraMove;}
 function markMoved(g:Game,p:Piece){p.moved=true;const home=p.color==="w"?"1":"8";if(["a","e","h"].some(f=>p.id===p.color+f+home))g.abilities[p.color].eligible=false;}
 function take(g:Game,i:number,by:Side){const p=g.board[i];if(p&&p.color!==by&&p.kind!=="k")g.captured[by].push(clone(p));g.board[i]=null;return p;}
+function onCapture(g:Game,p:Piece,target:Piece){
+  const a=g.abilities[p.color];
+  if(a.id==="gatling"&&p.kind==="q"&&target.kind==="p")a.ammo=Math.min(8,(a.ammo??0)+1);
+  if(a.id!=="general"||target.color===p.color)return;
+  if(!a.general&&p.kind==="p"){a.general={id:p.id,kills:0};a.active=true;}
+  const army=a.general;
+  if(army&&[army.id,army.knightId,army.bishopId].includes(p.id)){
+    army.kills++;record(g,p.color,`장군 부대 포획 ${army.kills}회`,true);
+  }
+}
 function explode(g:Game,at:number,by:Side,fallenQueens:Side[]){
   for(const s of [by,other(by)] as Side[])if(g.abilities[s].id==="bombLauncher"&&!g.abilities[s].uses){
     g.abilities[s].uses++;g.abilities[s].active=true;const r=Math.floor(at/8),c=at%8;
@@ -196,11 +289,34 @@ function resolveRoyals(g:Game,fallenQueens:Side[]=[]){
   if(lost.length===1){end(g,other(lost[0]),`${sideName(lost[0])}의 핵심 기물이 잡혔습니다.`);return;}
   if(missing.length){const s=missing[0];g.phase="reaction";g.pending={owner:s,chooser:s,options:reactionOptions(g,s)};}
 }
-function afterAction(g:Game,by:Side,fallenQueens:Side[]=[]){
+function finishTurn(g:Game,by:Side){delete g.extraMove;g.doubleLeft=0;g.turn=other(by);}
+function afterAction(g:Game,by:Side,fallenQueens:Side[]=[],generalMoved=false){
   resolveRoyals(g,fallenQueens);if(g.phase==="over")return;
   const defender=other(by),a=g.abilities[defender];
   if(a.id==="reactionary"&&a.active&&threatened(g,defender).length){a.threats++;record(g,by,`왕룩 위협 ${a.threats}/3`,true);if(a.threats>=3){end(g,by,"왕룩에 대한 위협이 3회 누적되었습니다.");return;}}
-  g.ply++;if(g.doubleLeft>1)g.doubleLeft--;else{g.doubleLeft=0;g.turn=other(by);}
+  if(defender==="b"&&a.id==="mounted"&&a.fusion&&g.board.filter(p=>p?.color==="b").length===1&&threatened(g,"b").length){
+    a.threats++;record(g,by,`흑마 위협 ${a.threats}/5`,true);
+    if(a.threats>=5){end(g,"w","흑마 탄 임금님이 홀로 남은 뒤 체크를 5회 받았습니다.");return;}
+  }
+  g.ply++;
+  if(g.extraMove?.side===by){
+    if(g.extraMove.kind==="mountedKnight"){
+      g.extraMove.kind="mountedKing";
+      const at=g.board.findIndex(p=>p&&g.extraMove!.ids.includes(p.id));
+      if(g.phase==="play"&&at>=0&&movesFor(g,at).length)return;
+    }
+    finishTurn(g,by);return;
+  }
+  if(generalMoved&&g.phase==="play"){
+    const army=g.abilities[by].general;
+    if(army&&g.board.some(p=>p?.id===army.id)){
+      const ids=followers(g,by);
+      g.extraMove={side:by,kind:"general",ids};
+      if(generalAssignment(g,by)||g.board.some((p,i)=>p&&ids.includes(p.id)&&movesFor(g,i).length))return;
+      delete g.extraMove;
+    }
+  }
+  if(g.doubleLeft>1)g.doubleLeft--;else finishTurn(g,by);
 }
 function promote(p:Piece,to:number,kind?:Kind){if(p.kind==="p"&&(Math.floor(to/8)===0||Math.floor(to/8)===7)){assert(kind&&["q","r","b","n"].includes(kind),"프로모션 기물을 선택해 주세요.");p.kind=kind;}}
 function restoreMove(g:Game,s:Side,id:CardId){
@@ -229,7 +345,7 @@ export function applyAction(previous:Game,by:Side,action:Action):Game {
   if(action.type==="choice"){
     assert(g.phase==="choice"&&g.pending?.chooser===by,"결과를 고를 차례가 아닙니다.");
     assert(action.choice==="w"||action.choice==="b","승리할 색을 선택해 주세요.");
-    const card=g.abilities[g.pending.owner].id;end(g,card==="fiveAhead"?other(action.choice):action.choice,`${cardInfo(card).name}의 결과가 적용되었습니다.`);g.revision++;return g;
+    const card=g.abilities[g.pending.owner].id;end(g,card==="fiveAhead"?other(action.choice):action.choice,"승리 색 선택 결과가 적용되었습니다.");g.revision++;return g;
   }
   if(action.type==="duel"){
     assert(g.phase==="duel"&&g.duel,"가위바위보가 진행 중이 아닙니다.");
@@ -246,6 +362,11 @@ export function applyAction(previous:Game,by:Side,action:Action):Game {
     g.revision++;return g;
   }
   assert(g.phase==="play","현재 선택을 먼저 완료해 주세요.");
+  if(action.type==="skipExtra"){
+    assert(g.turn===by&&g.extraMove?.side===by,"건너뛸 추가 이동이 없습니다.");
+    assert(g.extraMove.kind!=="mountedKnight","나이트 이동을 먼저 해 주세요.");
+    finishTurn(g,by);g.lastAction="ability";record(g,by,"추가 이동 건너뛰기",true);g.revision++;return g;
+  }
   if(action.type==="draw"){assert(!g.drawOffer,"이미 무승부 제안이 있습니다.");g.drawOffer=by;record(g,by,"무승부 제안",true);g.revision++;return g;}
   if(action.type==="acceptDraw"||action.type==="declineDraw"){
     assert(g.drawOffer===other(by),"상대의 무승부 제안이 없습니다.");
@@ -255,9 +376,82 @@ export function applyAction(previous:Game,by:Side,action:Action):Game {
     const error=abilityError(g,by);assert(!error,error||"");
     if(a.id==="noThatMove"||a.id==="temusanTimeStone"){restoreMove(g,by,a.id);g.revision=previous.revision+1;return g;}
     let consumes=false;const fallenQueens:Side[]=[];g.drawOffer=null;
+    let incrementUse=true;
     if(a.id==="wildHorse")a.active=true;
     else if(a.id==="doubleMove"){a.active=true;g.doubleLeft=2;}
-    else if(a.id==="queenRule")a.active=true;
+    else if(a.id==="queenRule"||a.id==="forwardPawns")a.active=true;
+    else if(a.id==="nothing"){a.active=true;g.glow=[...new Set([...(g.glow??[]),by])];}
+    else if(a.id==="burrow"){
+      if(a.burrow){
+        assert(!g.board[a.burrow.at],"숨은 칸에 기물이 있어 나올 수 없습니다.");
+        g.board[a.burrow.at]=a.burrow.piece;delete a.burrow;incrementUse=false;a.active=false;
+      }else{
+        assert(validSquare(action.from)&&abilityTargets(g,by).includes(action.from),"숨길 내 기물을 선택하세요. 킹은 숨길 수 없습니다.");
+        a.burrow={at:action.from,piece:g.board[action.from]!};g.board[action.from]=null;a.active=true;
+        if(g.ep?.pawn===action.from)g.ep=null;
+      }
+    }
+    else if(a.id==="shiningKnight"){
+      assert(validSquare(action.from)&&abilityTargets(g,by).includes(action.from),"뛰어넘을 내 기물을 선택하세요.");
+      assert(validSquare(action.to)&&abilityTargets(g,by,action.from).includes(action.to),"상대 기물을 넘어 빈칸에 착지하세요.");
+      const p=g.board[action.from]!;g.board[action.from]=null;g.board[action.to]=p;markMoved(g,p);promote(p,action.to,action.promotion);consumes=true;
+    }
+    else if(a.id==="armyForward"){
+      if(a.uses===1){
+        assert(validSquare(action.from)&&validSquare(action.to)&&action.from!==action.to&&[action.from,action.to].every(i=>g.board[i]?.color===by&&g.board[i]?.kind==="r"),"희생할 내 룩 두 개를 선택하세요.");
+        take(g,action.from,by);take(g,action.to,by);consumes=true;
+      }
+      const dir=by==="w"?-8:8;
+      // Determine every destination before moving: blocked pawns never follow into a vacated square.
+      const advancing=g.board.flatMap((p,i)=>p?.color===by&&p.kind==="p"&&validSquare(i+dir)&&!g.board[i+dir]?[{p,from:i,to:i+dir}]:[]);
+      for(const {p,from,to} of advancing){g.board[from]=null;g.board[to]=p;markMoved(g,p);promote(p,to,"q");}
+      g.ep=null;a.active=true;
+    }
+    else if(a.id==="general"){
+      const army=a.general;assert(army,"먼저 내 폰으로 상대 기물을 잡으세요.");
+      assert(validSquare(action.from)&&abilityTargets(g,by).includes(action.from),"장군 또는 지정할 휘하 기물을 선택하세요.");
+      const assign=generalAssignment(g,by);
+      if(assign){
+        if(assign==="n")army.knightId=g.board[action.from]!.id;else army.bishopId=g.board[action.from]!.id;
+        if(g.extraMove?.kind==="general")g.extraMove.ids=followers(g,by);
+      }else{
+        assert(validSquare(action.to)&&abilityTargets(g,by,action.from).includes(action.to),"위치를 교환할 휘하 기물을 선택하세요.");
+        [g.board[action.from],g.board[action.to]]=[g.board[action.to],g.board[action.from]];consumes=true;
+      }
+    }
+    else if(a.id==="gatling"){
+      assert(validSquare(action.from)&&abilityTargets(g,by).includes(action.from),"발사할 내 퀸을 선택하세요.");
+      const impacts=gatlingImpacts(g,action.from),burst=action.mode==="burst";
+      assert(action.mode===undefined||action.mode==="shot"||burst,"발사 방식을 확인하세요.");
+      assert(!burst||(a.ammo??0)>=8,"범위 사격에는 8발이 필요합니다.");
+      if(!burst)assert(validSquare(action.to)&&impacts.includes(action.to),"막히지 않은 방향의 첫 상대 기물을 선택하세요.");
+      const centers=burst?impacts:[action.to!];
+      // Resolve all rays against the same board; blast removal cannot make a ray penetrate.
+      const targets=[...new Set(centers.flatMap(i=>burst?blastArea(i):[i]))];
+      const hits=targets.filter(i=>g.board[i]?.color===other(by));
+      for(const i of hits){const p=g.board[i]!;if(p.kind==="q"&&isRoyal(g,p))fallenQueens.push(p.color);take(g,i,by);}
+      if(hits.length)explode(g,centers[0],by,fallenQueens);
+      a.ammo=(a.ammo??0)-(burst?8:1);consumes=true;
+    }
+    else if(a.id==="shallNotPass"){
+      assert(validSquare(action.from)&&abilityTargets(g,by).includes(action.from),"내 비숍을 선택하세요.");
+      for(let i=action.from%8;i<64;i+=8){const p=g.board[i];if(p?.color===other(by)&&p.kind!=="k"){if(p.kind==="q"&&isRoyal(g,p))fallenQueens.push(p.color);take(g,i,by);}}
+      consumes=true;
+    }
+    else if(a.id==="mounted"){
+      if(!a.fusion){
+        assert(validSquare(action.from)&&abilityTargets(g,by).includes(action.from),"융합할 내 나이트를 선택하세요.");
+        assert(validSquare(action.to)&&abilityTargets(g,by,action.from).includes(action.to),by==="w"?"융합할 내 룩을 선택하세요.":"융합할 내 킹을 선택하세요.");
+        const p=g.board[action.to]!;markMoved(g,g.board[action.from]!);markMoved(g,p);p.form=by==="w"?"prince":"emperor";g.board[action.from]=null;
+        a.fusion={id:p.id,doubleUses:0};a.active=true;
+      }else{
+        assert(by==="b"&&a.fusion.doubleUses<2,"연속 이동을 사용할 수 없습니다.");
+        const at=g.board.findIndex(p=>p?.id===a.fusion!.id);
+        g.extraMove={side:by,kind:"mountedKnight",ids:[a.fusion.id]};
+        assert(at>=0&&movesFor(g,at).length,"가능한 나이트 이동이 없습니다.");
+        a.fusion.doubleUses++;incrementUse=false;
+      }
+    }
     else if(a.id==="kingReturn"){
       const score=kingScore(g,by);
       g.board=g.board.map(p=>p?.color===by&&p.kind!=="k"&&p.kind!=="p"?null:p);a.active=true;
@@ -286,8 +480,9 @@ export function applyAction(previous:Game,by:Side,action:Action):Game {
       g.board[action.from]=null;g.board[action.to]=null;g.board[action.from+dir*2]=p;g.board[action.from+dir]=q;markMoved(g,p);markMoved(g,q);a.castleCount++;consumes=true;
       if(a.castleCount>=7)end(g,by,"평등국가 · 히든 승리");
     }else throw new Error("자동 발동 능력입니다.");
-    a.uses++;g.lastAction="ability";record(g,by,`${cardInfo(a.id).name}${action.from!==undefined?" · "+square(action.from):""}${action.to!==undefined?" → "+square(action.to):""}`,true);
+    if(incrementUse)a.uses++;g.lastAction="ability";record(g,by,`${cardInfo(a.id).name}${action.from!==undefined?" · "+square(action.from):""}${action.to!==undefined?" → "+square(action.to):""}`,true);
     if(consumes){g.ep=null;g.ban[by]=null;if(!g.result)afterAction(g,by,fallenQueens);}
+    else if(!g.result)resolveRoyals(g,fallenQueens);
     g.revision=previous.revision+1;return g;
   }
   assert(action.type==="move","지원하지 않는 동작입니다.");assert(g.turn===by,"내 차례가 아닙니다.");
@@ -296,14 +491,16 @@ export function applyAction(previous:Game,by:Side,action:Action):Game {
   const move=movesFor(g,action.from).find(m=>m.to===action.to);assert(move,"이 기물은 그 칸으로 이동할 수 없습니다.");
   const snapshot=coreOf(g);const capturedAt=move.capturedAt??move.to;const target=take(g,capturedAt,by);
   const fallenQueens:Side[]=[];if(target?.kind==="q"&&isRoyal(g,target))fallenQueens.push(target.color);
-  g.board[move.from]=null;g.board[move.to]=p;markMoved(g,p);promote(p,move.to,action.promotion);
+  if(target)onCapture(g,p,target);
+  g.board[move.from]=null;g.board[move.to]=p;markMoved(g,p);
+  if(!(a.general?.id===p.id&&a.general.kills>=2))promote(p,move.to,action.promotion);
   if(move.special==="castle"){const rook=g.board[move.rookFrom!]!;g.board[move.rookFrom!]=null;g.board[move.rookTo!]=rook;markMoved(g,rook);}
-  g.ep=null;if(p.kind==="p"&&Math.abs(move.to-move.from)===16)g.ep={target:(move.from+move.to)/2,pawn:move.to,for:other(by)};
-  if(target)explode(g,move.to,by,fallenQueens);
+  g.ep=null;if(p.kind==="p"&&!(a.general?.id===p.id&&a.general.kills>=2)&&Math.abs(move.to-move.from)===16)g.ep={target:(move.from+move.to)/2,pawn:move.to,for:other(by)};
+  if(target&&target.color!==by)explode(g,move.to,by,fallenQueens);
   if(p.kind==="k"&&a.power){a.power.left--;if(a.power.left<=0)a.power=null;}
   g.ban[by]=null;g.drawOffer=null;g.lastAction="move";
   record(g,by,`${kindName[snapshot.board[move.from]!.kind]} ${square(move.from)} ${target?"×":"→"} ${square(move.to)}${p.kind!==snapshot.board[move.from]!.kind?" = "+kindName[p.kind]:""}${move.special==="castle"?" · 캐슬링":move.special==="ep"?" · 앙파상":""}`,false,move);
-  g.undo.push({by,move,before:snapshot});g.undo=g.undo.slice(-4);afterAction(g,by,fallenQueens);
+  g.undo.push({by,move,before:snapshot});g.undo=g.undo.slice(-4);afterAction(g,by,fallenQueens,a.general?.id===p.id);
   g.revision=previous.revision+1;return g;
 }
 export function publicGame(g:Game,viewer?:Side):Game {
@@ -313,8 +510,11 @@ export function publicGame(g:Game,viewer?:Side):Game {
     out.onlineView={side:viewer,moves:{},targets:{start:abilityTargets(g,viewer)}};
     g.board.forEach((p,i)=>{if(p?.color===viewer){out.onlineView!.moves[i]=movesFor(g,i);out.onlineView!.targets[String(i)]=abilityTargets(g,viewer,i);}});
     out.abilities[opponent]={id:"hidden",uses:0,active:false,castleCount:0,eligible:false,threats:0,rookId:null,power:null};
-    out.log=out.log.map(entry=>({...entry,text:entry.ability&&(entry.side===opponent||entry.text.includes(cardInfo(hidden.id).name)||hidden.id==="reactionary"&&entry.text.includes("왕룩"))?"능력 관련 행동":entry.text}));
-    if(out.result&&(out.result.reason.includes(cardInfo(hidden.id).name)||hidden.id==="reactionary"&&out.result.reason.includes("왕룩")))out.result.reason="능력 효과로 대국이 종료되었습니다.";
+    out.board.forEach(p=>{if(p?.color===opponent)delete p.form;});
+    out.captured.w.forEach(p=>{delete p.form;});out.captured.b.forEach(p=>{delete p.form;});
+    if(out.extraMove?.side===opponent)delete out.extraMove;
+    out.log=out.log.map(entry=>entry.ability&&(entry.side===opponent||entry.text.includes(cardInfo(hidden.id).name)||hidden.id==="reactionary"&&entry.text.includes("왕룩")||hidden.id==="mounted"&&entry.text.includes("흑마"))?{n:entry.n,side:entry.side,text:"능력 관련 행동",ability:true}:entry);
+    if(out.result&&(out.result.reason.includes(cardInfo(hidden.id).name)||hidden.id==="reactionary"&&out.result.reason.includes("왕룩")||hidden.id==="mounted"&&out.result.reason.includes("흑마")))out.result.reason="능력 효과로 대국이 종료되었습니다.";
     if(out.pending&&out.pending.chooser!==viewer)out.pending.options=[];
   }
   // Clients receive availability metadata, never a state snapshot they can send back.
