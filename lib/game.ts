@@ -74,6 +74,13 @@ export type Core = {
   drawOffer:Side|null; log:Log[]; serial:number; lastAction:"move"|"ability"|null;
 };
 export type Game = Core & { revision:number; undo:{by:Side;move:Move;before:Core}[] };
+// Choice abilities must remain indistinguishable, including after their result.
+export function visibleAbilityId(g:Core,side:Side,viewer:Side):CardId|"hidden" {
+  const a=g.abilities[side];
+  if(a.id==="hidden"||a.id==="fiveAhead"||a.id==="conscienceTest")return "hidden";
+  if(side===viewer||a.uses>0)return a.id;
+  return "hidden";
+}
 export type Action = { type:"move"|"ability"|"reaction"|"choice"|"duel"|"resign"|"draw"|"acceptDraw"|"declineDraw"|"skipExtra"; from?:number;to?:number;piece?:number;capture?:number;promotion?:Kind;choice?:Side;gesture?:Gesture;mode?:"shot"|"burst" };
 const values:Record<Kind,number> = {p:1,n:3,b:3,r:5,q:9,k:0};
 const clone = <T,>(x:T):T => structuredClone(x);
