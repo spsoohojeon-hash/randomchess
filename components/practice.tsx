@@ -1,4 +1,5 @@
 "use client";
+import practiceWorkerUrl from "../workers/practice.worker.ts?worker&url";
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {ChessKing,ChessQueen,ChessRook,ChessBishop,ChessKnight,ChessPawn,ArrowLeft,RotateCw,ChevronLeft,ChevronRight,Lightbulb,Play,Pause,FlaskConical,LoaderCircle} from 'lucide-react';
 import {CARDS,createGame,drawCards,applyAction,other,sideName,handbookDescription,cardInfo,square,kindName} from '@/lib/game';
@@ -52,7 +53,7 @@ export default function Practice({onExit}:{onExit:()=>void}){
   if(!game||!session||!aiTurn||paused||reviewing)return;
   let cancelled=false,worker:Worker;const source=game,id=++requestId.current;
   setThinking(true);
-  try{worker=new Worker(new URL('../workers/practice.worker.ts',import.meta.url),{type:'module'});}catch{setThinking(false);setPaused(true);setError('AI를 불러오지 못했습니다. 다시 시도해 주세요.');return;}
+  try{worker=new Worker(practiceWorkerUrl,{type:'module'});}catch{setThinking(false);setPaused(true);setError('AI를 불러오지 못했습니다. 다시 시도해 주세요.');return;}
   const timeout=setTimeout(()=>{if(cancelled)return;worker.terminate();setThinking(false);setPaused(true);setError('AI 계산이 길어졌습니다. 난이도를 낮추거나 다시 진행하세요.');},12000);
   worker.onmessage=e=>{
    if(cancelled)return;clearTimeout(timeout);setThinking(false);
@@ -68,7 +69,7 @@ export default function Practice({onExit}:{onExit:()=>void}){
  useEffect(()=>{
   setResult(null);if(!game||!session||!showAnalysis&&!showHint)return;
   let cancelled=false,worker:Worker;const id=++requestId.current;setAnalyzing(true);
-  try{worker=new Worker(new URL('../workers/practice.worker.ts',import.meta.url),{type:'module'});}catch{setAnalyzing(false);return;}
+  try{worker=new Worker(practiceWorkerUrl,{type:'module'});}catch{setAnalyzing(false);return;}
   const timeout=setTimeout(()=>{if(cancelled)return;worker.terminate();setAnalyzing(false);setResult({id,action:null,score:null,wdl:null,uncertainty:0,depth:0,nodes:0,candidates:0,incomplete:true,line:[],unavailable:true});},12000);
   worker.onmessage=e=>{if(cancelled)return;clearTimeout(timeout);setAnalyzing(false);if(e.data.ok)setResult(e.data.result);};
   worker.onerror=()=>{if(!cancelled){clearTimeout(timeout);setAnalyzing(false);}};
