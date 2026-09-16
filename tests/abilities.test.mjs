@@ -50,6 +50,33 @@ test('forward pawns activate free and persist, with forward capture and no diago
  assert.deepEqual(threatened(g,'b'),[]);g=move(g,'d4','d5');assert.equal(g.captured.w[0].kind,'p');assert(g.abilities.w.active);
 });
 
+test('activated forward pawns capture two squares from their initial rank for either color',()=>{
+ for(const [side,enemy,from,to] of [['w','b','d2','d4'],['b','w','d7','d5']]){
+  let g=pos('forwardPawns','forwardPawns',{a1:'wk',h8:'bk',[from]:side+'p',[to]:enemy+'r'});g.turn=side;
+  assert(!goes(g,from,to));g=use(g,side);assert(goes(g,from,to));
+  const after=move(g,from,to);assert.equal(after.board[sq(from)],null);assert.equal(after.board[sq(to)].color,side);
+  assert.equal(after.captured[side][0].kind,'r');assert.equal(after.turn,enemy);assert.equal(after.ply,1);
+ }
+});
+
+test('two-square forward capture respects blockers, allied targets, moved state and home rank',()=>{
+ const setup=()=>use(pos('forwardPawns','necro',{a1:'wk',h8:'bk',d2:'wp',d4:'br'}),'w');
+ for(const color of ['w','b']){
+  const g=setup();g.board[sq('d3')]={id:'block',color,kind:'p',moved:false};
+  assert(!goes(g,'d2','d4'));assert.throws(()=>move(g,'d2','d4'));
+ }
+ const ally=setup();ally.board[sq('d4')].color='w';assert(!goes(ally,'d2','d4'));
+ const moved=setup();moved.board[sq('d2')].moved=true;assert(!goes(moved,'d2','d4'));
+ const offRank=use(pos('forwardPawns','necro',{a1:'wk',h8:'bk',d3:'wp',d5:'br'}),'w');assert(!goes(offRank,'d3','d5'));
+ const empty=setup();empty.board[sq('d4')]=null;assert(goes(empty,'d2','d4'));
+});
+
+test('two-square forward royal capture is reflected in threat detection and still obeys double-move restrictions',()=>{
+ let g=use(pos('forwardPawns','necro',{a1:'wk',d2:'wp',d4:'bk'}),'w');
+ assert.deepEqual(threatened(g,'b'),[sq('d4')]);assert.equal(move(g,'d2','d4').result.winner,'w');
+ g.doubleLeft=2;assert(!goes(g,'d2','d4'));assert.throws(()=>move(g,'d2','d4'));
+});
+
 test('nothing adds only a public rainbow effect, no move or turn changes',()=>{
  const g=createGame('nothing','necro'),before=movesFor(g,sq('b1'));g.turn='b';
  const h=use(g,'w');assert.deepEqual(h.board,g.board);assert.equal(h.ply,0);assert.equal(h.turn,'b');assert.deepEqual(movesFor(h,sq('b1')),before);

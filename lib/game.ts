@@ -26,7 +26,7 @@ export const CARDS: Card[] = [
   { id:"conscienceTest",name:"양심테스트",short:"상대에게 맡기는 결말",description:"시작할 때 상대가 승리할 색을 선택합니다. 고른 색이 그대로 승리합니다.",mode:"passive",classic:false,icon:"heart" },
   { id:"burrow",name:"버로우",short:"원하는 순간 다시 등장",description:"킹을 제외한 내 기물 하나를 제자리에서 숨깁니다. 숨은 기물은 이동하거나 잡힐 수 없습니다. 그 칸은 다른 기물이 사용할 수 있으며, 비어 있을 때만 다시 나올 수 있습니다. 숨기기 1회, 숨기기와 나오기 모두 턴 소모 없음.",mode:"once",classic:false,icon:"eye" },
   { id:"shiningKnight",name:"나는 내가 빛나는 나이트인 줄 알았어요",short:"가로막은 적을 뛰어넘기",description:"버튼으로 발동합니다. 내 기물 하나가 직선·대각선으로 상대 기물을 개수 제한 없이 뛰어넘어 빈칸에 착지합니다. 아군을 넘거나 착지하며 잡을 수 없습니다. 3회, 이동에 한 턴을 사용합니다.",mode:"thrice",classic:false,icon:"horse" },
-  { id:"forwardPawns",name:"전진밖에 모르는 병신들",short:"앞으로 잡는 폰",description:"발동 후 내 폰은 대각선 대신 바로 앞 한 칸의 상대 기물을 잡습니다. 효과는 계속 유지됩니다. 턴 소모 없음.",mode:"once",classic:false,icon:"zap" },
+  { id:"forwardPawns",name:"전진밖에 모르는 병신들",short:"앞으로 잡는 폰",description:"발동 후 내 폰은 대각선 대신 앞으로 상대 기물을 잡습니다. 처음 위치에서 아직 움직이지 않은 폰은 중간 칸이 비어 있으면 두 칸 앞의 상대 기물도 잡습니다. 효과는 계속 유지됩니다. 발동은 턴 소모 없음.",mode:"once",classic:false,icon:"zap" },
   { id:"nothing",name:"진-짜 사기적인 능력",short:"무능력",description:"발동하면 내 기물의 테두리가 무지개빛으로 빛납니다. 게임 규칙에 영향을 주는 효과는 없습니다. 턴 소모 없음.",mode:"once",classic:false,icon:"shuffle" },
   { id:"armyForward",name:"전군, 앞으로!",short:"모든 폰을 한 칸 앞으로",description:"내 모든 폰을 동시에 한 칸 전진시킵니다. 앞에 기물이 있으면 움직이지 않습니다. 첫 사용은 턴 소모 없음. 내 룩 2개를 희생하고 한 턴을 사용해 한 번 더 발동할 수 있습니다. 끝줄에 도착한 폰은 퀸으로 승격합니다.",mode:"twice",classic:false,icon:"flag" },
   { id:"general",name:"오성장군",short:"장군과 휘하 병력",description:"처음 적을 잡은 내 폰이 장군이 됩니다. 장군·휘하의 합산 포획 1회: 기존 내 나이트를 휘하로 지정. 장군 이동 후 추가 이동 가능. 2회: 장군이 킹처럼 이동. 3회: 기존 내 비숍도 지정하며 추가 이동은 휘하 중 하나만 가능. 4회 이상: 한 턴을 써서 장군과 휘하 하나의 위치 교환. 교환은 이동으로 취급하지 않습니다. 지정은 턴 소모 없음.",mode:"repeat",classic:false,icon:"crown" },
@@ -150,8 +150,12 @@ export function movesFor(g:Core,from:number,attacks=false):Move[] {
       if(attacks||t&&t.color!==p.color)add(nr,nc);
       else if(!forward&&g.ep?.for===p.color&&g.ep.target===to&&g.board[g.ep.pawn]?.kind==="p")add(nr,nc,{special:"ep",capturedAt:g.ep.pawn});
     }
-    if(!attacks&&r+dir>=0&&r+dir<8&&!g.board[(r+dir)*8+c]){
-      add(r+dir,c);if(!p.moved&&r===(p.color==="w"?6:1)&&!g.board[(r+2*dir)*8+c])add(r+2*dir,c);
+    if(r+dir>=0&&r+dir<8&&!g.board[(r+dir)*8+c]){
+      if(!attacks)add(r+dir,c);
+      if(!p.moved&&r===(p.color==="w"?6:1)){
+        const target=g.board[(r+2*dir)*8+c];
+        if(forward&&attacks||!attacks&&(!target||forward&&target.color!==p.color))add(r+2*dir,c);
+      }
     }
   }
   if(p.kind==="n")jump(a.id==="wildHorse"&&a.active?wildSteps:knight);
