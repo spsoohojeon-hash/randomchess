@@ -1,5 +1,6 @@
 "use client";
 
+import Practice from "@/components/practice";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { ChessKing, ChessQueen, ChessRook, ChessBishop, ChessKnight, ChessPawn, Dices, ArrowUpRight, RotateCw, BookOpen, Users, Globe2, Copy, Check, Flag, Handshake, Zap, Orbit, Skull, Equal, Cross, Crown, Bomb, Ban, Rewind, Triangle, Hand, Shuffle, Eye, Heart, X, LoaderCircle, Volume2, VolumeX, ChevronRight, ArrowLeftRight, WifiOff } from "lucide-react";
 import { Dialog, DialogContent, DialogTitle, DialogDescription } from "@/components/ui/dialog";
@@ -26,6 +27,7 @@ function AbilityIcon({id}:{id:CardId}){const Icon=icons[cardInfo(id).icon as key
 const initial=createGame();
 
 export default function ChessGame(){
+  const [practice,setPractice]=useState(false);
   const [game,setGame]=useState<Game>(initial),[active,setActive]=useState(false),[loaded,setLoaded]=useState(false);
   const [setupMode,setSetupMode]=useState("local"),[pool,setPool]=useState<"all"|"selected">("all");
   const [selectedCards,setSelectedCards]=useState<CardId[]>(CARDS.map(c=>c.id));
@@ -100,13 +102,14 @@ export default function ChessGame(){
     }catch(e){setError(e instanceof Error?e.message:"다시 시도해 주세요.");}finally{busyRef.current=false;setBusy(false);}
   },[receive,setCurrent,playSound]);sendRef.current=send;
   useEffect(()=>{
+    if(practice)return;
     type Context={registerTool:(tool:Record<string,unknown>,options:{signal:AbortSignal})=>unknown};
     const ctx=(document as unknown as {modelContext?:Context}).modelContext;if(!ctx?.registerTool)return;
     const lifecycle=new AbortController();
     const tool={name:"read_randomchess_position",title:"대국 상태 읽기",description:"현재 판, 차례, 능력, 가능한 이동을 읽습니다.",inputSchema:{type:"object",properties:{},additionalProperties:false},annotations:{readOnlyHint:true},execute:()=>{const g=gameRef.current;return {turn:g.turn,phase:g.phase,result:g.result,abilities:Object.fromEntries((["w","b"] as Side[]).map(side=>[side,visibleAbilityId(g,side,sessionRef.current?.side??g.pending?.chooser??g.turn)==="hidden"?{id:"hidden"}:g.abilities[side]])),pieces:g.board.flatMap((p,i)=>p?[{square:square(i),color:p.color,kind:p.kind,moves:movesFor(g,i).map(m=>square(m.to))}]:[])};}};
     try{void Promise.resolve(ctx.registerTool(tool,{signal:lifecycle.signal})).catch(()=>{});}catch{}
     return()=>lifecycle.abort();
-  },[]);
+  },[practice]);
   const startLocal=(mode:"random"|"assigned"=localStart)=>{try{setCurrent(createGame(...drawCards(activePool,mode==="assigned"?chosen:undefined)));setLocalStart(mode);setSession(null);sessionRef.current=null;setRoom(null);roomRef.current=null;setActive(true);setFlip(false);setError("");}catch(e){setError((e as Error).message);}};
   const connectRoom=async(type:"create"|"join"|"resume")=>{
     if(busyRef.current)return;busyRef.current=true;setBusy(true);setError("");
@@ -226,6 +229,7 @@ export default function ChessGame(){
   const burstReady=stage?.from!==undefined&&stageId==="gatling"&&(game.abilities[stage.side].ammo??0)>=8;
   const duelSide:Side=session?.side??(!game.duel?.picked.w?"w":"b");
 
+  if(practice)return <Practice onExit={()=>setPractice(false)}/>;
   return <div className="app-shell">
     <header className="topbar"><button className="brand" onClick={requestNew} aria-label="랜덤능력체스 대국 설정"><span className="brand-mark"><ChessKnight/></span><span>랜덤능력<span className="brand-accent">체스</span><small>RANDOM CHESS</small></span></button><nav><button className="quiet-button" onClick={()=>setRules(true)}><BookOpen size={18}/><span>능력 도감</span></button><button className="icon-button" aria-label={sound?"효과음 끄기":"효과음 켜기"} onClick={()=>{setSound(!sound);try{localStorage.setItem("randomchess.sound",!sound?"yes":"no");}catch{}}}>{sound?<Volume2 size={19}/>:<VolumeX size={19}/>}</button></nav></header>
     <main className="game-layout">
@@ -252,10 +256,11 @@ export default function ChessGame(){
       <aside className="control-column">
         {error&&<div className="error-banner" role="alert"><span>{error}</span><button aria-label="오류 알림 닫기" onClick={()=>setError("")}><X size={16}/></button></div>}
         {!active?<section className="setup-panel"><h2>대국 설정</h2>
-          <Tabs value={setupMode} onValueChange={setSetupMode}><TabsList className="mode-tabs"><TabsTrigger value="local"><Users size={17}/>로컬 2인</TabsTrigger><TabsTrigger value="online"><Globe2 size={17}/>온라인</TabsTrigger></TabsList>
+          <Tabs value={setupMode} onValueChange={setSetupMode}><TabsList className="mode-tabs"><TabsTrigger value="local"><Users size={17}/>로컬 2인</TabsTrigger><TabsTrigger value="online"><Globe2 size={17}/>온라인</TabsTrigger><TabsTrigger value="practice">연습</TabsTrigger></TabsList>
             <div className="field"><label>능력 묶음</label><Select value={pool} onValueChange={v=>setPool(v as "all"|"selected")}><SelectTrigger className="ability-select" aria-label="능력 묶음"><SelectValue/></SelectTrigger><SelectContent><SelectItem value="all">전체능력묶음</SelectItem><SelectItem value="selected">선택능력묶음</SelectItem></SelectContent></Select></div>
             {pool==="selected"&&<fieldset className="pool-picker"><legend>선택 능력 · {selectedCards.length}/{CARDS.length}</legend><div className="pool-picker-actions"><button type="button" onClick={()=>setSelectedCards(CARDS.map(c=>c.id))}>전체 선택</button><button type="button" onClick={()=>setSelectedCards([])}>전체 해제</button></div><div className="pool-options">{CARDS.map(card=><label className="pool-option" key={card.id}><input type="checkbox" checked={selectedCards.includes(card.id)} onChange={e=>{const checked=e.currentTarget.checked;setSelectedCards(previous=>checked?[...previous,card.id]:previous.filter(id=>id!==card.id));}}/><span>{card.name}</span></label>)}</div>{poolEmpty&&<p className="field-help" role="status">능력을 1개 이상 선택하세요.</p>}</fieldset>}
             <TabsContent value="local"><button className="primary-button start-button" onClick={()=>startLocal("random")} disabled={!loaded||poolEmpty}><Dices size={20}/>랜덤으로 시작<ArrowUpRight size={21}/></button><div className="or-divider"><span/>능력 지정<span/></div><div className="ability-choices">{(["w","b"] as Side[]).map(side=><div className="field" key={side}><label>{sideName(side)}의 능력</label><Select value={chosen[side]} onValueChange={value=>setChosen(previous=>({...previous,[side]:value as CardId|"random"}))}><SelectTrigger className="ability-select" aria-label={`${sideName(side)}의 지정 능력`}><SelectValue/></SelectTrigger><SelectContent><SelectItem value="random">랜덤</SelectItem>{availableCards.map(card=><SelectItem key={card.id} value={card.id}>{card.name}</SelectItem>)}</SelectContent></Select></div>)}</div>{!validChosen&&<p className="field-help">현재 묶음에 포함된 능력을 다시 선택하세요.</p>}<button className="secondary-button" onClick={()=>startLocal("assigned")} disabled={!loaded||poolEmpty||!validChosen}>능력 지정 시작<ArrowUpRight size={20}/></button></TabsContent>
+            <TabsContent value="practice"><button className="primary-button" onClick={()=>setPractice(true)}>연습 모드 열기<ArrowUpRight size={20}/></button></TabsContent>
             <TabsContent value="online"><button className="primary-button" disabled={busy||poolEmpty} onClick={()=>void connectRoom("create")}>{busy?<LoaderCircle className="spin" size={18}/>:<Globe2 size={18}/>}새 방 만들기<ArrowUpRight size={20}/></button><div className="or-divider"><span/>또는 코드로 참가<span/></div><form onSubmit={e=>{e.preventDefault();void connectRoom("join");}}><label className="input-label" htmlFor="room-code">방 코드</label><div className="join-row"><input id="room-code" value={joinCode} onChange={e=>setJoinCode(e.target.value.toUpperCase().replace(/[^A-Z2-9]/g,"").slice(0,6))} maxLength={6} placeholder="ABC123" autoComplete="off" spellCheck={false}/><button className="secondary-button" disabled={busy||joinCode.length!==6}>참가</button></div></form>{savedSession&&<button className="resume-button" disabled={busy} onClick={()=>void connectRoom("resume")}><RotateCw size={15}/>{savedSession.code} 방으로 돌아가기</button>}</TabsContent>
           </Tabs><button className="text-link" onClick={()=>setRules(true)}>{CARDS.length}가지 능력 살펴보기<ChevronRight size={16}/></button>
         </section>:<>
