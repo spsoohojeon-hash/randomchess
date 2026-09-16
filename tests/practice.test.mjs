@@ -60,3 +60,41 @@ test('probability estimates sum to 100, terminal outcomes are exact, unknown sta
 test('unknown choice identities do not create an impossible draw probability',()=>{
  const g=createGame('necro','fiveAhead');const r=analyze(request(g,'w','practical'));assert.equal(r.wdl.draw,0);assert.equal(r.wdl.w,50);assert.equal(r.wdl.b,50);
 });
+
+test('practical opponent activates a free ability and then completes its ordinary move',()=>{
+ for(const id of ['wildHorse','forwardPawns','nothing','armyForward','mounted']){
+  let g=createGame('necro',id);const frames=[{game:g}];
+  const move={type:'move',from:sq('e2'),to:sq('e4')};g=applyAction(g,'w',move);frames.push({game:g,by:'w',action:move});
+  const decide=()=>analyze(makeRequest(frames,'b','all','practical','normal','move',1));
+  const ability=decide().action;assert.equal(ability?.type,'ability',id);
+  g=applyAction(g,'b',ability);assert.equal(g.turn,'b',id);frames.push({game:g,by:'b',action:ability});
+  let moved=false;
+  for(let i=0;i<6&&g.turn==='b';i++){
+   const follow=decide().action;assert(follow,id);moved ||= follow.type==='move';
+   g=applyAction(g,'b',follow);frames.push({game:g,by:'b',action:follow});
+  }
+  assert(moved,id);assert.equal(g.turn,'w',id);
+ }
+});
+
+test('AI uses offensive, revival and double-move abilities when their follow-up is stronger',()=>{
+ const g=pos('necro','wildHorse',{a1:'wk',h8:'bk',b8:'bn',e6:'wq'});g.turn='b';
+ for(const difficulty of ['easy','normal','hard']){
+  const r=analyze({...request(g,'b'),difficulty});assert.equal(r.action?.type,'ability',difficulty);
+  const after=applyAction(g,'b',r.action);const follow=analyze({...request(after,'b'),difficulty});
+  assert.equal(follow.action?.to,sq('e6'),difficulty);
+ }
+ const shot=pos('necro','gatling',{a1:'wk',h8:'bk',d5:'bq',d3:'wq',c3:'wr',e3:'wr'});shot.turn='b';shot.abilities.b.ammo=8;
+ assert.equal(analyze(request(shot,'b')).action?.mode,'burst');
+ const revive=pos('necro','necro');revive.turn='b';revive.captured.b=[{id:'dead',color:'w',kind:'q',moved:true}];
+ assert.equal(analyze(request(revive,'b')).action?.capture,0);
+ const twice=pos('necro','doubleMove',{a1:'wk',h8:'bk',d8:'br',d6:'wq',f6:'wq'});twice.turn='b';
+ const first=analyze(request(twice,'b')).action;assert.equal(first?.type,'ability');
+ const active=applyAction(twice,'b',first);const next=analyze(request(active,'b')).action;
+ assert.equal(next?.to,sq('d6'));assert.equal(applyAction(active,'b',next).turn,'b');
+});
+
+test('AI prefers an immediate king capture to spending an ability',()=>{
+ const g=pos('necro','kingReturn',{a1:'wk',h8:'bk',a8:'br'});g.turn='b';
+ const r=analyze(request(g,'b'));assert.equal(r.action?.type,'move');assert.equal(applyAction(g,'b',r.action).result?.winner,'b');
+});

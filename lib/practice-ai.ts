@@ -99,6 +99,8 @@ export function evaluate(g:Game):number {
    const advancement=s==='w'?6-Math.floor(i/8):Math.floor(i/8)-1;
    v+=value[p.kind]+(p.kind==='p'?Math.max(0,advancement)*.1: p.kind!=='k'?(3.5-Math.abs(i%8-3.5)+3.5-Math.abs(Math.floor(i/8)-3.5))*.025:0);
    if(p.form)v+=3;if(isRoyal(g,p))v+=.01;
+   // Movement-changing abilities have value even before they take a piece.
+   v+=movesFor(g,i).length*.012;
   }
   if(a.burrow)v+=value[a.burrow.piece.kind]*.7;
   v+=(a.ammo??0)*.22+(a.power?.left??0)*.055+(a.general?.kills??0)*.28;
@@ -110,22 +112,34 @@ export function evaluate(g:Game):number {
  return score;
 }
 type Candidate={action:Action;game:Game;score:number};
+// Keep ability branches in the beam even when activation has no immediate material gain.
+function beamCandidates<T extends {action:Action}>(ranked:T[],width:number):T[]{
+ const selected=ranked.slice(0,width);
+ for(const c of ranked.filter(c=>c.action.type==='ability').slice(0,2))if(!selected.includes(c))selected.push(c);
+ return selected;
+}
+function remainingDepth(before:Game,after:Game,side:Side,depth:number,chain:number):number{
+ // A free activation or first half of a double move must not consume a whole search turn.
+ return after.phase==='play'&&actor(after)===side&&before.phase==='play'&&chain<3?depth:depth-1;
+}
 export type AnalysisResult={id:number;action:Action|null;score:number|null;wdl:{w:number;draw:number;b:number}|null;uncertainty:number;depth:number;nodes:number;candidates:number;incomplete:boolean;line:Step[];unavailable?:boolean};
 const settings={easy:{depth:1,nodes:240,beam:5,worlds:4},normal:{depth:2,nodes:750,beam:7,worlds:6},hard:{depth:3,nodes:1800,beam:9,worlds:8}};
-function search(g:Game,depth:number,budget:{nodes:number;limit:number;deadline:number},beam:number):{score:number;line:Step[];depth:number}{
+function search(g:Game,depth:number,budget:{nodes:number;limit:number;deadline:number},beam:number,chain=0):{score:number;line:Step[];depth:number}{
  if(g.result||depth===0||budget.nodes>=budget.limit||performance.now()>budget.deadline)return {score:evaluate(g),line:[],depth:0};
  // Simultaneous moves are not treated as an opponent's visible, exploitable commitment.
  if(g.phase==='duel')return {score:0,line:[],depth:0};
  const side=actor(g),sign=side==='w'?1:-1;
  const candidates:Candidate[]=[];
  for(const action of legalActions(g,side)){
-  if(budget.nodes++>=budget.limit||performance.now()>budget.deadline)break;
+  if(performance.now()>budget.deadline)break;
+  budget.nodes++;
   const next=applyAction(g,side,action);candidates.push({action,game:next,score:evaluate(next)});
  }
  candidates.sort((a,b)=>sign*(b.score-a.score));
  let best={score:evaluate(g),line:[] as Step[],depth:0},first=true;
- for(const c of candidates.slice(0,beam)){
-  const child=search(c.game,depth-1,budget,beam);
+ for(const c of beamCandidates(candidates,beam)){
+  const remaining=remainingDepth(g,c.game,side,depth,chain);
+  const child=search(c.game,remaining,budget,beam,remaining===depth?chain+1:0);
   if(first||sign*child.score>sign*best.score){first=false;best={score:child.score,line:[{side,action:c.action},...child.line],depth:1+child.depth};}
  }
  return best;
@@ -158,12 +172,14 @@ export function analyze(request:AnalysisRequest):AnalysisResult {
   if(valid===worlds.length)ranked.push({action,score:sum/valid,spread:hi-lo,line:[{side,action}],depth:1});
  }
  ranked.sort((a,b)=>sign*(b.score-a.score));
- const finalists=ranked.slice(0,cfg.beam);
+ const finalists=beamCandidates(ranked,cfg.beam);
  for(const candidate of finalists){
-  let sum=0,depth=cfg.depth,lo=Infinity,hi=-Infinity;
+  let sum=0,depth=Infinity,lo=Infinity,hi=-Infinity;
   for(const g of worlds){
-   const budget={nodes:0,limit:Math.max(15,Math.floor(cfg.nodes/(Math.max(1,finalists.length)*worlds.length))),deadline};
-   const result=search(applyAction(g,side,candidate.action),cfg.depth-1,budget,cfg.beam);
+   const next=applyAction(g,side,candidate.action);
+   const remaining=remainingDepth(g,next,side,cfg.depth,0);
+   const budget={nodes:0,limit:Math.max(80,Math.floor(cfg.nodes/(Math.max(1,finalists.length)*worlds.length))),deadline};
+   const result=search(next,remaining,budget,cfg.beam,remaining===cfg.depth?1:0);
    nodes+=budget.nodes;sum+=result.score;lo=Math.min(lo,result.score);hi=Math.max(hi,result.score);depth=Math.min(depth,1+result.depth);
    if(worlds.length===1)candidate.line=[{side,action:candidate.action},...result.line];
   }
