@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {CARDS,drawCards,normalizeCardPool,handbookDescription,cardInfo} from '../lib/game.ts';
+import {CARDS,drawCards,normalizeCardPool,handbookDescription,cardInfo,createGame,applyAction,visibleAbilityId,publicGame} from '../lib/game.ts';
 
 test('selected pools only draw included abilities and preserve distinct draws when possible',()=>{
  const pool=['burrow','gatling','general'];
@@ -20,4 +20,28 @@ test('handbook omits special victory reveals while game card instructions remain
  assert(!/23|체크|왕룩 포획/.test(handbookDescription('kingReturn')));
  assert(!/체크|5회/.test(handbookDescription('mounted')));
  assert.match(cardInfo('mounted').description,/5번/);
+});
+test('local opponents stay unknown before use, including abilities active from setup',()=>{
+ for(const card of CARDS){
+  const g=createGame('necro',card.id);
+  assert.equal(visibleAbilityId(g,'b','w'),'hidden',card.id);
+ }
+ const g=applyAction(createGame('nothing','necro'),'w',{type:'ability'});
+ assert.equal(visibleAbilityId(g,'w','b'),'nothing');
+ assert.equal(visibleAbilityId(publicGame(g,'b'),'w','b'),'hidden');
+});
+test('choice identities stay hidden from both sides before and after the outcome',()=>{
+ for(const card of ['fiveAhead','conscienceTest']){
+  const g=createGame(card,'equality');
+  for(const viewer of ['w','b'])assert.equal(visibleAbilityId(g,'w',viewer),'hidden');
+  const ended=applyAction(g,'b',{type:'choice',choice:'b'});
+  for(const viewer of ['w','b'])assert.equal(visibleAbilityId(ended,'w',viewer),'hidden');
+ }
+});
+test('assigned starts honor both choices, a single choice, duplicates, and pool membership',()=>{
+ assert.deepEqual(drawCards('all',{w:'burrow',b:'mounted'}),['burrow','mounted']);
+ assert.deepEqual(drawCards('all',{w:'nothing',b:'nothing'}),['nothing','nothing']);
+ assert.deepEqual(drawCards(['burrow','mounted'],{w:'random',b:'mounted'}),['burrow','mounted']);
+ assert.deepEqual(drawCards(['burrow','mounted'],{w:'burrow',b:'random'}),['burrow','mounted']);
+ assert.throws(()=>drawCards(['burrow'],{w:'mounted',b:'random'}));
 });
