@@ -69,10 +69,11 @@ export default function Practice({onExit}:{onExit:()=>void}){
  useEffect(()=>{
   setResult(null);if(!game||!session||!showAnalysis&&!showHint)return;
   let cancelled=false,worker:Worker;const id=++requestId.current;setAnalyzing(true);
-  try{worker=new Worker(practiceWorkerUrl,{type:'module'});}catch{setAnalyzing(false);return;}
+  const failed=()=>setResult({id,action:null,score:null,wdl:null,uncertainty:0,depth:0,nodes:0,candidates:0,incomplete:true,line:[],unavailable:true});
+  try{worker=new Worker(practiceWorkerUrl,{type:'module'});}catch{setAnalyzing(false);failed();return;}
   const timeout=setTimeout(()=>{if(cancelled)return;worker.terminate();setAnalyzing(false);setResult({id,action:null,score:null,wdl:null,uncertainty:0,depth:0,nodes:0,candidates:0,incomplete:true,line:[],unavailable:true});},12000);
-  worker.onmessage=e=>{if(cancelled)return;clearTimeout(timeout);setAnalyzing(false);if(e.data.ok)setResult(e.data.result);};
-  worker.onerror=()=>{if(!cancelled){clearTimeout(timeout);setAnalyzing(false);}};
+  worker.onmessage=e=>{if(cancelled)return;clearTimeout(timeout);setAnalyzing(false);if(e.data.ok)setResult(e.data.result);else failed();};
+  worker.onerror=()=>{if(!cancelled){clearTimeout(timeout);setAnalyzing(false);failed();}};
   worker.postMessage(makeRequest(history,session.side,session.pool,session.mode,session.difficulty,'analysis',id));
   return()=>{cancelled=true;clearTimeout(timeout);worker.terminate();setAnalyzing(false);};
  },[game,session,history,showAnalysis,showHint]);
@@ -137,7 +138,7 @@ export default function Practice({onExit}:{onExit:()=>void}){
      {session.type==='ai'&&game.phase!=='over'&&<div className="practice-toolbar"><button className="quiet-button" onClick={()=>{if(reviewing){setFrames(frames.slice(0,cursor+1));}setPaused(!paused);}}>{paused?<Play size={16}/>:<Pause size={16}/>} {paused?'이 장면에서 계속':'AI 일시정지'}</button><button className="quiet-button" onClick={()=>{setSession({...session,type:'free'});setPaused(true);}}>자유 분석으로</button></div>}
     </section>
     <section className="practice-analysis ability-card"><div className="card-top"><strong>{session.mode==='practical'?'실전평가':'이론평가'}</strong><label><input type="checkbox" checked={showAnalysis} onChange={e=>setShowAnalysis(e.target.checked)}/> 실시간</label></div>
-     {showAnalysis&&<>{analyzing?<p>분석 중…</p>:result?.wdl?<><div className="evaluation-score">{scoreText}<small>백 기준</small></div><div className="wdl"><span>백 승 <b>{result.wdl.w}%</b></span><span>무승부 <b>{result.wdl.draw}%</b></span><span>흑 승 <b>{result.wdl.b}%</b></span></div><p className="field-help">예상치 · 통계 보정 전{result.uncertainty>0?` · 불확실성 ${result.uncertainty>=25?'높음':'있음'}`:''}</p><p className="field-help">최대 {result.depth}행동 탐색{session.mode==='practical'?` · 가설 ${result.candidates}개`:''}{result.incomplete?' · 일부 표본 분석':''}</p></>:<p className="field-help">현재 정보로 평가를 계산하지 못했습니다.</p>}</>}
+     {showAnalysis&&<>{analyzing?<p>분석 중…</p>:result?.wdl?<><div className="evaluation-score">{scoreText}<small>백 기준</small></div><div className="wdl"><span>백 승 <b>{result.wdl.w}%</b></span><span>무승부 <b>{result.wdl.draw}%</b></span><span>흑 승 <b>{result.wdl.b}%</b></span></div><p className="field-help">예상치 · 통계 보정 전{result.uncertainty>0?` · 불확실성 ${result.uncertainty>=25?'높음':'있음'}`:''}</p><p className="field-help">최대 {result.depth}행동 탐색{session.mode==='practical'?` · 가설 ${result.candidates}개`:''}{result.incomplete?' · 일부 표본 분석':''}</p></>:<p className="field-help">{result?.unavailable?"현재 정보로 평가를 계산하지 못했습니다.":"분석 준비 중…"}</p>}</>}
      <button className="secondary-button" onClick={()=>setShowHint(!showHint)}><Lightbulb size={17}/>{showHint?'추천 수 숨기기':'추천 수 보기'}</button>
      {showHint&&(analyzing?<p>추천 수 분석 중…</p>:result?.action?<div className="practice-hint"><strong>{sideName(turn)} · {actionLabel(result.action,game,turn)}</strong>{result.line.length>1&&<p>{result.line.slice(1).map((s,i)=><span key={i}>{sideName(s.side)} {actionLabel(s.action)}{i<result.line.length-2?' → ':''}</span>)}</p>}{!blocked&&turn===controller&&<button className="quiet-button" onClick={()=>playAction(result.action!)}>추천 수 두기</button>}</div>:<p className="field-help">추천할 수 있는 행동이 없습니다.</p>)}
     </section>

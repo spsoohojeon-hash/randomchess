@@ -171,5 +171,14 @@ export function analyze(request:AnalysisRequest):AnalysisResult {
  }
  finalists.sort((a,b)=>sign*(b.score-a.score));
  const best=finalists[0];const score=best?.score??worlds.reduce((n,g)=>n+evaluate(g),0)/worlds.length;
- return {...empty,action:best?.action??null,score,wdl:winEstimate(score),uncertainty:Math.min(50,Math.round((best?.spread??0)*3+(all.length>1?12:0)+(inferred.incomplete?15:0))),depth:best?.depth??0,nodes,candidates:all.length,incomplete:inferred.incomplete||worlds.length<all.length,line:best?.line??[]};
+ let wdl=winEstimate(score);
+ if(best){
+  const outcomes=worlds.map(g=>applyAction(g,side,best.action).result);
+  if(outcomes.every(Boolean)){
+   const w=Math.round(100*outcomes.filter(r=>r?.winner==='w').length/outcomes.length);
+   const draw=Math.round(100*outcomes.filter(r=>r?.winner==='draw').length/outcomes.length);
+   wdl={w,draw,b:100-w-draw};
+  }
+ }
+ return {...empty,action:best?.action??null,score,wdl,uncertainty:Math.min(50,Math.round((best?.spread??0)*3+(all.length>1?12:0)+(inferred.incomplete?15:0))),depth:best?.depth??0,nodes,candidates:all.length,incomplete:inferred.incomplete||worlds.length<all.length,line:best?.line??[]};
 }

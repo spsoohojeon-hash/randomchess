@@ -56,3 +56,7 @@ test('probability estimates sum to 100, terminal outcomes are exact, unknown sta
  const g=applyAction(createGame(),'b',{type:'resign'});assert.equal(evaluate(g),10000);assert.deepEqual(analyze(request(g)).wdl,{w:100,draw:0,b:0});
  const r=request(createGame(),'w','practical');r.knowledge.observations[0].position.board.fill(null);assert.equal(analyze(r).unavailable,true);
 });
+
+test('unknown choice identities do not create an impossible draw probability',()=>{
+ const g=createGame('necro','fiveAhead');const r=analyze(request(g,'w','practical'));assert.equal(r.wdl.draw,0);assert.equal(r.wdl.w,50);assert.equal(r.wdl.b,50);
+});
