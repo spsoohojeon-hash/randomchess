@@ -101,7 +101,8 @@ export default function Practice({onExit}:{onExit:()=>void}){
  const poolCards=CARDS.filter(c=>config.pool==='all'||config.pool.includes(c.id));
  const score=result?.score;
  const scoreText=score===null||score===undefined?'—':Math.abs(score)>=10000?(score>0?'백 우세':'흑 우세'):`${score>=0?'+':''}${score.toFixed(1)}`;
- const bar=result?.wdl?result.wdl.w+result.wdl.draw/2:50;
+ const probabilities=!analyzing?result?.wdl:null;
+ const barLabel=probabilities?`예상 승률: 백 ${probabilities.w}%, 무승부 ${probabilities.draw}%, 흑 ${probabilities.b}%`:analyzing?'승률 분석 중':'승률 정보 없음';
  return <div className="app-shell practice-shell">
   <header className="topbar"><button className="quiet-button" onClick={onExit}><ArrowLeft size={19}/>실제 대국으로</button><h1><FlaskConical size={21}/>연습</h1>{session&&<button className="quiet-button" onClick={()=>{setSession(null);setFrames([]);setCursor(0);setPaused(true);setError('');}}>새 연습</button>}</header>
   {error&&<div className="error-banner" role="alert">{error}<button onClick={()=>setError('')} aria-label="닫기">×</button></div>}
@@ -122,7 +123,14 @@ export default function Practice({onExit}:{onExit:()=>void}){
     <div className="board-heading"><h2>{session.type==='ai'?'AI 대국':'자유 분석'}</h2><span className="round-badge">{session.mode==='practical'?'실전평가':'이론평가'}</span></div>
     <div className="practice-player"><strong>{sideName(flip?'w':'b')}{session.type==='ai'&&(flip?'w':'b')===aiSide?' · AI':''}</strong><span>{visibleName(flip?'w':'b')}</span></div>
     <div className="practice-board-row">
-     {showAnalysis&&<div className="evaluation-bar" aria-label={`백 기준 평가 ${scoreText}`}><div style={{height:`${bar}%`,[flip?'top':'bottom']:0}}/><strong>{scoreText}</strong></div>}
+     {showAnalysis&&<div className="evaluation-rail" role="img" aria-label={barLabel} title={barLabel}>
+      <div className={`evaluation-bar ${probabilities?'':'evaluation-pending'}`} aria-hidden="true">
+       {probabilities?(flip?(['w','draw','b'] as const):(['b','draw','w'] as const)).map(side=><div key={side} className={`evaluation-segment evaluation-${side}`} style={{flexGrow:probabilities[side]}}/>):<span className="evaluation-placeholder">{analyzing?'…':'—'}</span>}
+       <i className="evaluation-midpoint"/>
+      </div>
+      <span className={`evaluation-end evaluation-top ${flip?'is-white':'is-black'}`} aria-hidden="true">{flip?'백':'흑'}<b>{probabilities?`${probabilities[flip?'w':'b']}%`:'—'}</b></span>
+      <span className={`evaluation-end evaluation-bottom ${flip?'is-black':'is-white'}`} aria-hidden="true">{flip?'흑':'백'}<b>{probabilities?`${probabilities[flip?'b':'w']}%`:'—'}</b></span>
+     </div>}
      <div className="board-frame"><div className="chessboard" role="group" aria-label="연습 체스판">
       {Array.from({length:64},(_,n)=>flip?63-n:n).map(i=>{const p=game.board[i],Icon=p?icons[p.kind]:null;const target=selected!==null&&actions.some(a=>a.type==='move'&&a.from===selected&&a.to===i);return <button key={i} className={`cell ${(Math.floor(i/8)+i%8)%2===0?'light':'dark'} ${selected===i?'selected':''} ${target?'legal':''}`} aria-label={`${square(i)}${p?' '+sideName(p.color)+' '+kindName[p.kind]:''}`} aria-pressed={selected===i} onClick={()=>chooseMove(i)} disabled={blocked||game.phase!=='play'}>{Icon&&p&&<Icon className={`piece piece-${p.color} ${game.glow?.includes(p.color)?'practice-glow':''}`} strokeWidth={1.8}/>}<small className="practice-coordinate">{square(i)}</small>{target&&<i className="practice-target"/>}</button>;})}
      </div></div>
