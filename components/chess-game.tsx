@@ -11,7 +11,7 @@ import type { Game, Piece, Side, Kind, CardId, Action, Gesture, CardPool } from 
 
 type Session={code:string;token:string;side:Side};
 type Room={code:string;side:Side;game:Game;version:number;waiting:boolean;pool:CardPool;rematch:Side[];expiresAt:number};
-type Stage={side:Side;from?:number;capture?:number};
+type Stage={side:Side;from?:number;capture?:number;mode?:"burst"};
 type Confirm={title:string;description:string;label:string;run:()=>void;danger?:boolean};
 const pieces={k:ChessKing,q:ChessQueen,r:ChessRook,b:ChessBishop,n:ChessKnight,p:ChessPawn};
 const icons={skull:Skull,horse:ChessKnight,orbit:Orbit,zap:Zap,equal:Equal,flag:Flag,cross:Cross,crown:Crown,bomb:Bomb,ban:Ban,rewind:Rewind,triangle:Triangle,hand:Hand,queen:ChessQueen,shuffle:Shuffle,eye:Eye,heart:Heart};
@@ -147,11 +147,24 @@ export default function ChessGame(){
     if(["noThatMove","temusanTimeStone","quickDuel"].includes(id)){setConfirm({title:cardInfo(id).name,description:cardInfo(id).description,label:"능력 사용",run:()=>void send({type:"ability"},side)});return;}
     void send({type:"ability"},side);
   };
+  const confirmBurst=(side:Side,from:number)=>{
+    const count=[...new Set(gatlingImpacts(game,from).flatMap(blastArea))].filter(i=>game.board[i]?.color===other(side)).length;
+    setConfirm({title:"8발 모두 사용",description:`${count}개의 상대 기물이 범위 안에 있습니다. 탄약 8발과 한 턴을 사용합니다.`,label:"8발 모두 사용",danger:true,run:()=>void send({type:"ability",from,mode:"burst"},side)});
+  };
+  const beginBurst=(side:Side)=>{
+    const why=abilityError(game,side);if(why){setError(why);return;}
+    if((game.abilities[side].ammo??0)<8){setError("범위 사격에는 8발이 필요합니다.");return;}
+    setError("");setSelected(null);
+    const queens=abilityTargets(game,side);
+    const from=stage?.side===side&&stage.from!==undefined&&queens.includes(stage.from)?stage.from:queens.length===1?queens[0]:undefined;
+    setStage({side,from,mode:"burst"});
+    if(from!==undefined)confirmBurst(side,from);
+  };
   const legal=useMemo(()=>{
     if(!active||waiting||busy)return [];
     if(game.phase==="reaction")return (!online||mySide===game.pending?.chooser)?game.pending?.options??[]:[];
     if(game.phase!=="play")return [];
-    if(stage)return abilityTargets(game,stage.side,stage.from);
+    if(stage)return stage.mode==="burst"&&stage.from!==undefined?[]:abilityTargets(game,stage.side,stage.from);
     return selected===null?[]:movesFor(game,selected).map(m=>m.to);
   },[game,active,waiting,busy,stage,selected,online,mySide]);
   const clickSquare=(i:number)=>{
@@ -160,6 +173,7 @@ export default function ChessGame(){
     if(game.phase!=="play")return;
     if(stage){
       if(!legal.includes(i))return;const id=game.abilities[stage.side].id;
+      if(id==="gatling"&&stage.mode==="burst"){setStage({...stage,from:i});setSelected(i);confirmBurst(stage.side,i);return;}
       if(id==="necro"){submitWithPromotion({type:"ability",capture:stage.capture,to:i},stage.side,game.captured[stage.side][stage.capture!]);return;}
       if(id==="burrow"||id==="general"&&generalAssignment(game,stage.side)){
         void send({type:"ability",from:i},stage.side);return;
@@ -183,14 +197,14 @@ export default function ChessGame(){
   const lastMove=game.log.findLast(x=>x.from!==undefined&&!x.ability);
   const dangerous=stage?.from!==undefined&&game.abilities[stage.side].id==="exorcism"?exorcismTargets(game,stage.from):[];
   const stageId=stage?game.abilities[stage.side].id:null;
-  const stagePrompt=stage?stageId==="necro"?"부활시킬 킹 주변의 빈칸을 골라 주세요.":stageId==="exorcism"||stageId==="shallNotPass"?"능력을 사용할 내 비숍을 골라 주세요.":stageId==="burrow"?"숨길 내 기물을 골라 주세요.":stageId==="armyForward"?stage.from===undefined?"희생할 첫 번째 룩을 고르세요.":"희생할 두 번째 룩을 고르세요.":stageId==="general"&&generalAssignment(game,stage.side)?`휘하 ${generalAssignment(game,stage.side)==="n"?"나이트":"비숍"}를 지정하세요.`:stageId==="gatling"?stage.from===undefined?"발사할 퀸을 고르세요.":"명중 대상을 선택하거나 8발 범위 사격을 사용하세요.":stageId==="mounted"?stage.from===undefined?"융합할 나이트를 고르세요.":`융합할 ${stage.side==="w"?"룩":"킹"}을 고르세요.`:stage.from===undefined?"빛나는 내 기물을 먼저 골라 주세요.":"빛나는 도착칸을 골라 주세요.":"";
+  const stagePrompt=stage?stageId==="necro"?"부활시킬 킹 주변의 빈칸을 골라 주세요.":stageId==="exorcism"||stageId==="shallNotPass"?"능력을 사용할 내 비숍을 골라 주세요.":stageId==="burrow"?"숨길 내 기물을 골라 주세요.":stageId==="armyForward"?stage.from===undefined?"희생할 첫 번째 룩을 고르세요.":"희생할 두 번째 룩을 고르세요.":stageId==="general"&&generalAssignment(game,stage.side)?`휘하 ${generalAssignment(game,stage.side)==="n"?"나이트":"비숍"}를 지정하세요.`:stageId==="gatling"?stage.from===undefined?"발사할 퀸을 고르세요.":stage.mode==="burst"?"8발 모두 사용을 눌러 범위 사격하세요.":"명중 대상을 선택하거나 8발 모두 사용을 누르세요.":stageId==="mounted"?stage.from===undefined?"융합할 나이트를 고르세요.":`융합할 ${stage.side==="w"?"룩":"킹"}을 고르세요.`:stage.from===undefined?"빛나는 내 기물을 먼저 골라 주세요.":"빛나는 도착칸을 골라 주세요.":"";
   const status=!active?"대국을 준비하세요":waiting?"상대의 참가를 기다리는 중":game.result?game.result.winner==="draw"?"무승부":`${sideName(game.result.winner)} 승리`:game.phase==="reaction"?`${sideName(game.pending?.chooser??game.turn)} · 왕룩을 선택하세요`:game.phase==="choice"?`${sideName(game.pending?.chooser??game.turn)} · 결과를 선택하세요`:game.phase==="duel"?"속전속결 · 가위바위보":`${sideName(game.turn)}의 차례${game.doubleLeft?` · ${game.doubleLeft}회 이동 남음`:""}`;
   const cardPanel=(side:Side)=>{
     if(visibleAbilityId(game,side,mySide)==="hidden")return <article className="ability-card" key={side}><div className="card-top"><span className="card-owner">{sideName(side)}의 능력</span></div><div className="card-main"><div className="ability-emblem" aria-hidden="true">?</div><h3>?</h3></div></article>;
     const a=game.abilities[side];if(a.id==="hidden")return null;
     const info=cardInfo(a.id),why=abilityError(game,side),canControl=!online||side===mySide;
     const used=(info.mode==="once"&&a.uses>0&&!a.burrow)||(info.mode==="twice"&&a.uses>=2)||(info.mode==="thrice"&&a.uses>=3);
-    const label=a.burrow?"버로우 해제":a.id==="general"?generalAssignment(game,side)?`휘하 ${generalAssignment(game,side)==="n"?"나이트":"비숍"} 지정`:"장군·휘하 위치 교환":a.id==="mounted"?a.fusion?"연속 이동 사용":"융합":a.id==="armyForward"&&a.uses===1?"룩 2개 희생 후 재발동":"능력 사용";
+    const label=a.burrow?"버로우 해제":a.id==="general"?generalAssignment(game,side)?`휘하 ${generalAssignment(game,side)==="n"?"나이트":"비숍"} 지정`:"장군·휘하 위치 교환":a.id==="mounted"?a.fusion?"연속 이동 사용":"융합":a.id==="armyForward"&&a.uses===1?"룩 2개 희생 후 재발동":a.id==="gatling"?"1발 사용":"능력 사용";
     return <article className={`ability-card ${side===game.turn?"current-card":""} ${used?"used-card":""}`} key={side}>
       <div className="card-top"><span className="card-owner"><i className={`side-token token-${side}`}/>{sideName(side)}의 능력{online&&side===mySide?" · 나":""}</span><span className="card-mode">{modeLabels[info.mode]}</span></div>
       <div className="card-main"><div className="ability-emblem"><AbilityIcon id={a.id}/></div><div><h3>{info.name}</h3></div></div>
@@ -202,6 +216,7 @@ export default function ChessGame(){
       
       {a.id==="reactionary"&&<div className="ability-stat">{a.active?"왕룩 위협": "발동 조건"}<strong>{a.active?`${a.threats} / 3`:a.eligible?"유지 중":"해제됨"}</strong></div>}
       {(info.mode==="twice"||info.mode==="thrice")&&<div className="ability-stat">남은 횟수 <strong>{(info.mode==="thrice"?3:2)-a.uses} / {info.mode==="thrice"?3:2}</strong></div>}
+      {side===mySide&&a.id==="gatling"&&(a.ammo??0)>=8&&<button className="primary-button burst-all-button" disabled={!!why||busy||waiting||online&&!connection} onClick={()=>beginBurst(side)}><Bomb size={18}/>8발 모두 사용</button>}
       {canControl&&info.mode!=="passive"?<><button className="card-use" disabled={!!why||busy||waiting||!connection&&online} onClick={()=>useAbility(side)}>{used?a.active?"발동 완료":"사용 완료":<><Zap size={16}/>{stage?.side===side?"체스판에서 선택 중":label}<ChevronRight size={17}/></>}</button>{why&&!used&&<p className="card-condition">{why}</p>}</>:<div className="passive-state">{a.uses?"발동 완료":a.active?"적용 중":info.mode==="passive"?"조건을 기다리는 중":"상대의 능력"}</div>}
     </article>;
   };
@@ -229,7 +244,7 @@ export default function ChessGame(){
             {hiddenPieces.some(h=>h.at===i)&&<span className="burrow-mark" title="내 기물이 이 칸에 숨어 있습니다">잠복</span>}
             {royal&&<span className="royal-mark" title="승패를 결정하는 기물">★</span>}{highlight&&!p&&<span className="move-dot"/>}</button>;})}
         </div></div></div>
-        {burstReady&&<div className="burst-controls"><span>8방향 · 명중 지점마다 3×3</span><button className="secondary-button" disabled={busy} onClick={()=>setConfirm({title:"8발 범위 사격",description:`${[...new Set(gatlingImpacts(game,stage!.from!).flatMap(blastArea))].filter(i=>game.board[i]?.color===other(stage!.side)).length}개의 상대 기물이 범위 안에 있습니다. 탄약 8발과 한 턴을 사용합니다.`,label:"8발 발사",danger:true,run:()=>void send({type:"ability",from:stage!.from,mode:"burst"},stage!.side)})}>8발 범위 사격</button></div>}
+        {burstReady&&<div className="burst-controls"><span>8방향 · 명중 지점마다 3×3</span><button className="secondary-button" disabled={busy||waiting||online&&!connection||!!abilityError(game,stage!.side)} onClick={()=>confirmBurst(stage!.side,stage!.from!)}>8발 모두 사용</button></div>}
         {extra&&(!online||extra.side===mySide)&&<div className="extra-controls"><span>{extra.kind==="general"?"휘하 하나 추가 이동":extra.kind==="mountedKnight"?"연속 이동 · 나이트 이동":"연속 이동 · 킹 이동"}</span>{extra.kind!=="mountedKnight"&&<button className="quiet-button" disabled={busy} onClick={()=>void send({type:"skipExtra"},extra.side)}>건너뛰기</button>}</div>}
         <div className={`player-bar ${active&&game.turn===(flip?"b":"w")?"player-active":""}`}><div className="player-identity"><span className={`player-avatar avatar-${flip?"b":"w"}`}><ChessKing/></span><div><strong>{sideName(flip?"b":"w")}{online&&mySide===(flip?"b":"w")?" · 나":""}</strong><span>{active?visibleAbilityId(game,flip?"b":"w",mySide)==="hidden"?"?":cardInfo(game.abilities[flip?"b":"w"].id).name:"능력 추첨 대기"}</span></div></div><div className="captured-pieces" aria-label="잡은 기물">{game.captured[flip?"b":"w"].slice(-10).map((p,i)=><PieceIcon key={i} piece={p} small/>)}</div></div>
         <div className="board-footer"><span><i className="legend-dot"/>이동 가능 <i className="legend-ring"/>포획 가능</span><button className="quiet-button" onClick={()=>setFlip(!flip)}><ArrowLeftRight size={16}/>판 뒤집기</button></div>
