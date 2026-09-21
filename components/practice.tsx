@@ -2,7 +2,7 @@
 import practiceWorkerUrl from "../workers/practice.worker.ts?worker&url";
 import {useEffect,useMemo,useRef,useState} from 'react';
 import {ChessKing,ChessQueen,ChessRook,ChessBishop,ChessKnight,ChessPawn,ArrowLeft,RotateCw,ChevronLeft,ChevronRight,Lightbulb,Play,Pause,FlaskConical,LoaderCircle} from 'lucide-react';
-import {CARDS,createGame,drawCards,applyAction,other,sideName,handbookDescription,cardInfo,square,kindName} from '@/lib/game';
+import {CARDS,createGame,drawCards,applyAction,other,sideName,handbookDescription,cardInfo,square,kindName,abilityStates} from '@/lib/game';
 import type {Game,Side,CardId,CardPool,Action} from '@/lib/game';
 import {legalActions,actionLabel,actionKey,actor,makeRequest} from '@/lib/practice-ai';
 import type {Frame,Difficulty,EvaluationMode,AnalysisResult} from '@/lib/practice-ai';
@@ -44,7 +44,7 @@ export default function Practice({onExit}:{onExit:()=>void}){
  const start=(c:Config)=>{
   try{
    const requested={...c.cards};if(c.mode==='practical')requested[other(c.side)]='random';
-   const g=createGame(...drawCards(c.pool,requested));
+   const g=createGame(...drawCards(c.pool,requested),c.pool);
    setSavedNotice(false);setSession(structuredClone(c));setFrames([{game:g}]);setCursor(0);setResult(null);setPaused(false);setFlip(c.side==='b');clearSelection();setError('');
   }catch{setError('능력 묶음과 지정 능력을 확인하세요. 능력을 하나 이상 선택해야 합니다.');}
  };
@@ -151,7 +151,7 @@ export default function Practice({onExit}:{onExit:()=>void}){
      {showHint&&(analyzing?<p>추천 수 분석 중…</p>:result?.action?<div className="practice-hint"><strong>{sideName(turn)} · {actionLabel(result.action,game,turn)}</strong>{result.line.length>1&&<p>{result.line.slice(1).map((s,i)=><span key={i}>{sideName(s.side)} {actionLabel(s.action)}{i<result.line.length-2?' → ':''}</span>)}</p>}{!blocked&&turn===controller&&<button className="quiet-button" onClick={()=>playAction(result.action!)}>추천 수 두기</button>}</div>:<p className="field-help">추천할 수 있는 행동이 없습니다.</p>)}
     </section>
     {session.type==='free'&&game.phase==='play'&&<div className="pool-picker-actions">{(['w','b'] as Side[]).map(s=><button key={s} aria-pressed={controller===s} onClick={()=>{setManualSide(s);setSelected(null);setAbility('');}}>{sideName(s)} 조작{controller===s?' ✓':''}</button>)}</div>}
-    <section className="ability-card"><div className="card-top"><strong>{sideName(controller)}의 능력</strong></div><h3>{visibleName(controller)}</h3>{visibleName(controller)!=='?'&&<p className="card-description">{handbookDescription(game.abilities[controller].id as CardId)}</p>}
+    <section className="ability-card"><div className="card-top"><strong>{sideName(controller)}의 능력</strong></div>{visibleName(controller)==='?'?<h3>?</h3>:abilityStates(game,controller).map((a,i)=>a.id==='hidden'?<h3 key={i}>?</h3>:<div key={`${a.id}-${i}`}><h3>{cardInfo(a.id).name}</h3><p className="card-description">{handbookDescription(a.id)}</p></div>)}
      {abilities.length>0&&<><label className="input-label" htmlFor="practice-ability">사용할 행동</label><select id="practice-ability" value={ability} disabled={blocked} onChange={e=>setAbility(e.target.value)}><option value="">선택하세요</option>{abilities.map((a,i)=><option key={actionKey(a)} value={i}>{actionLabel(a,game,controller)}</option>)}</select><button className="primary-button" disabled={blocked||ability===''||!abilities[Number(ability)]} onClick={()=>playAction(abilities[Number(ability)])}>능력 발동</button></>}
      {!abilities.length&&game.phase==='play'&&<p className="field-help">지금 사용할 수 있는 능력 행동이 없습니다.</p>}
      {['choice','reaction','duel'].includes(game.phase)&&<div className="practice-special">{actions.filter(a=>['choice','reaction','duel'].includes(a.type)).map(a=><button className="secondary-button" key={actionKey(a)} disabled={thinking&&game.phase!=='duel'} onClick={()=>commit(a,controller,game)}>{actionLabel(a)}</button>)}{!actions.length&&<p>상대의 선택을 기다리는 중</p>}</div>}

@@ -15,7 +15,8 @@ test('pool validation rejects empty, invalid, duplicate and malformed choices',(
  assert.deepEqual(normalizeCardPool('classic'),CARDS.filter(c=>c.classic).map(c=>c.id));
 });
 test('handbook omits special victory reveals while game card instructions remain available',()=>{
- for(const c of CARDS)assert(!/승리|승자|패배|히든|특수승|위협.*누적/.test(handbookDescription(c.id)),c.name);
+ for(const c of CARDS.filter(c=>!['metamon','giveMe'].includes(c.id)))assert(!/승리|승자|패배|히든|특수승|위협.*누적/.test(handbookDescription(c.id)),c.name);
+ assert.match(handbookDescription('giveMe'),/즉시 승리/);
  assert.equal(handbookDescription('fiveAhead'),handbookDescription('conscienceTest'));
  assert(!/23|체크|왕룩 포획/.test(handbookDescription('kingReturn')));
  assert(!/체크|5회/.test(handbookDescription('mounted')));
@@ -23,12 +24,12 @@ test('handbook omits special victory reveals while game card instructions remain
 });
 test('local opponents stay unknown before use, including abilities active from setup',()=>{
  for(const card of CARDS){
-  const g=createGame('necro',card.id);
-  assert.equal(visibleAbilityId(g,'b','w'),'hidden',card.id);
+ const g=createGame('necro',card.id);
+  assert.equal(visibleAbilityId(g,'b','w'),card.id==='metamon'?'necro':'hidden',card.id);
  }
  const g=applyAction(createGame('nothing','necro'),'w',{type:'ability'});
  assert.equal(visibleAbilityId(g,'w','b'),'nothing');
- assert.equal(visibleAbilityId(publicGame(g,'b'),'w','b'),'hidden');
+ assert.equal(visibleAbilityId(publicGame(g,'b'),'w','b'),'nothing');
 });
 test('choice identities stay hidden from both sides before and after the outcome',()=>{
  for(const card of ['fiveAhead','conscienceTest']){

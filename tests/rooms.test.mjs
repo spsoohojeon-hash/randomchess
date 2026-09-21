@@ -46,24 +46,24 @@ test('expired rooms and cross-origin mutation fail without changing state',async
  const cross=new Request('https://chess.test/api/rooms/'+w.code,{method:'POST',headers:{Origin:'https://other.test','Content-Type':'application/json'},body:JSON.stringify({type:'join'})});assert.equal((await roomApi(db,cross,w.code)).status,403);
  db.sql.prepare('UPDATE chess_rooms SET expires_at = 0 WHERE code = ?').run(w.code);assert.equal((await call(db,w.code,w.token)).status,410);db.sql.close();
 });
-test('online responses keep opponent cards secret across create, join, reconnect, conflict, action and replay',async()=>{
+test('online responses hide cards before activation and reveal the used card without private state',async()=>{
  const db=database();const {w,b}=await started(db);
  assert.equal(w.game.abilities.b.id,'hidden');assert.equal(b.game.abilities.w.id,'hidden');
  const g=createGame('wildHorse','kingReturn');db.sql.prepare('UPDATE chess_rooms SET game = ? WHERE code = ?').run(JSON.stringify(g),w.code);
- const check=(r,side)=>{assert.equal(r.game.abilities[side==='w'?'b':'w'].id,'hidden');assert.equal(r.game.abilities[side].id,side==='w'?'wildHorse':'kingReturn');assert(r.game.undo.every(h=>h.before===null));};
+ const check=(r,side,revealed=false)=>{assert.equal(r.game.abilities[side==='w'?'b':'w'].id,revealed&&side==='b'?'wildHorse':'hidden');assert.equal(r.game.abilities[side].id,side==='w'?'wildHorse':'kingReturn');assert(r.game.undo.every(h=>h.before===null));};
  check(await call(db,w.code,w.token),'w');check(await call(db,w.code,b.token),'b');
  const payload={type:'action',action:{type:'ability'},version:1,requestId:'privateAbility'};
  check(await call(db,w.code,w.token,payload),'w');check(await call(db,w.code,w.token,payload),'w');
- const conflict=await call(db,w.code,b.token,{...payload,requestId:'privateConflict'});assert.equal(conflict.status,409);check(conflict,'b');assert(!JSON.stringify(conflict.game).includes('wildHorse'));assert(!JSON.stringify(conflict.game).includes('존나 야생마'));
+ const conflict=await call(db,w.code,b.token,{...payload,requestId:'privateConflict'});assert.equal(conflict.status,409);check(conflict,'b',true);assert(JSON.stringify(conflict.game).includes('wildHorse'));
  const stored=JSON.parse(db.sql.prepare('SELECT game FROM chess_rooms WHERE code = ?').get(w.code).game);assert.equal(stored.abilities.w.id,'wildHorse');assert.equal(stored.abilities.w.active,true);db.sql.close();
 });
 
-test('burrow stays secret through HTTP actions, reconnect and occupied-square rejection',async()=>{
+test('burrow name is revealed after activation while its hidden piece state stays private',async()=>{
  const db=database();const {w,b}=await started(db);const g=createGame('burrow','gatling');
  db.sql.prepare('UPDATE chess_rooms SET game = ? WHERE code = ?').run(JSON.stringify(g),w.code);
  const payload={type:'action',version:1,requestId:'burrowHide001',action:{type:'ability',from:sq('b1')}};
  const hidden=await call(db,w.code,w.token,payload);assert.equal(hidden.status,200);assert.equal(hidden.game.abilities.w.burrow.at,sq('b1'));assert.equal(hidden.game.turn,'w');
- const opposite=await call(db,w.code,b.token);assert.equal(opposite.game.board[sq('b1')],null);assert.equal(opposite.game.abilities.w.id,'hidden');assert(!JSON.stringify(opposite.game).includes('burrow'));
+ const opposite=await call(db,w.code,b.token);assert.equal(opposite.game.board[sq('b1')],null);assert.equal(opposite.game.abilities.w.id,'burrow');assert.equal(opposite.game.abilities.w.burrow,undefined);
  assert.equal((await call(db,w.code,w.token,payload)).version,hidden.version);
  const stored=JSON.parse(db.sql.prepare('SELECT game FROM chess_rooms WHERE code = ?').get(w.code).game);stored.board[sq('b1')]={id:'blocker',color:'b',kind:'r',moved:true};
  db.sql.prepare('UPDATE chess_rooms SET game = ? WHERE code = ?').run(JSON.stringify(stored),w.code);
@@ -71,14 +71,14 @@ test('burrow stays secret through HTTP actions, reconnect and occupied-square re
  assert.equal((await call(db,w.code,w.token)).game.abilities.w.burrow.piece.kind,'n');db.sql.close();
 });
 
-test('gatling burst consumes server ammo once, hides it from opponent and persists reconnect',async()=>{
+test('gatling burst consumes server ammo once, reveals its name but hides ammo from opponent',async()=>{
  const db=database();const {w,b}=await started(db);const g=createGame('gatling','necro');g.board.fill(null);
  for(const [at,p] of Object.entries({a1:'wk',h7:'bk',d4:'wq',d6:'bn',e6:'br'}))g.board[sq(at)]={id:p[0]+at,color:p[0],kind:p[1],moved:true};
  g.abilities.w.ammo=8;db.sql.prepare('UPDATE chess_rooms SET game = ? WHERE code = ?').run(JSON.stringify(g),w.code);
  const payload={type:'action',version:1,requestId:'gatlingBurst01',action:{type:'ability',from:sq('d4'),mode:'burst'}};
  const fired=await call(db,w.code,w.token,payload);assert.equal(fired.status,200);assert.equal(fired.game.abilities.w.ammo,0);assert.equal(fired.game.board[sq('e6')],null);
  const replay=await call(db,w.code,w.token,payload);assert.equal(replay.version,fired.version);assert.equal(replay.game.captured.w.length,2);
- const enemy=await call(db,w.code,b.token);assert(!JSON.stringify(enemy.game).includes('gatling'));assert(!JSON.stringify(enemy.game).includes('ammo'));assert.deepEqual(enemy.game.board,fired.game.board);db.sql.close();
+ const enemy=await call(db,w.code,b.token);assert.equal(enemy.game.abilities.w.id,'gatling');assert(!JSON.stringify(enemy.game).includes('ammo'));assert.deepEqual(enemy.game.board,fired.game.board);db.sql.close();
 });
 
 test('selected online pool persists through join, reconnect and rematch; clients cannot replace it',async()=>{

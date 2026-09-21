@@ -11,8 +11,8 @@ const move=(g,from,to,promotion)=>applyAction(g,g.turn,{type:'move',from:sq(from
 const use=(g,side,from,to,extra={})=>applyAction(g,side,{type:'ability',...(from?{from:sq(from)}:{}),...(to?{to:sq(to)}:{}),...extra});
 const goes=(g,from,to)=>movesFor(g,sq(from)).some(m=>m.to===sq(to));
 
-test('all 26 cards have distinct ids; old saved games need no new fields',()=>{
- assert.equal(CARDS.length,26);assert.equal(new Set(CARDS.map(c=>c.id)).size,26);
+test('all 28 cards have distinct ids; old saved games need no new fields',()=>{
+ assert.equal(CARDS.length,28);assert.equal(new Set(CARDS.map(c=>c.id)).size,28);
  const old=createGame();delete old.glow;delete old.extraMove;
  assert.equal(move(old,'e2','e4').turn,'b');
 });
@@ -22,7 +22,7 @@ test('burrow is free on either turn, invulnerable and immobile, occupied exit re
  assert.throws(()=>use(g,'w','a1'));
  g=use(g,'w','d4');assert.equal(g.turn,'b');assert.equal(g.ply,0);assert.equal(g.board[sq('d4')],null);
  assert.deepEqual(movesFor(g,sq('d4')),[]);assert.equal(g.abilities.w.burrow.piece.id,'wd4');
- const enemy=publicGame(g,'b');assert(!JSON.stringify(enemy).includes('burrow'));assert.equal(enemy.log.at(-1).from,undefined);
+ const enemy=publicGame(g,'b');assert.equal(enemy.abilities.w.id,'burrow');assert.equal(enemy.abilities.w.burrow,undefined);assert.equal(enemy.log.at(-1).from,undefined);
  assert.equal(publicGame(g,'w').abilities.w.burrow.at,sq('d4'));
  g=move(g,'d8','d4');assert.equal(g.abilities.w.burrow.piece.kind,'n');assert.equal(g.captured.b.length,0);
  assert.throws(()=>use(g,'w'));assert.match(abilityError(g,'w'),/나올 수 없/);
@@ -80,7 +80,7 @@ test('two-square forward royal capture is reflected in threat detection and stil
 test('nothing adds only a public rainbow effect, no move or turn changes',()=>{
  const g=createGame('nothing','necro'),before=movesFor(g,sq('b1'));g.turn='b';
  const h=use(g,'w');assert.deepEqual(h.board,g.board);assert.equal(h.ply,0);assert.equal(h.turn,'b');assert.deepEqual(movesFor(h,sq('b1')),before);
- assert.deepEqual(publicGame(h,'b').glow,['w']);assert.equal(publicGame(h,'b').abilities.w.id,'hidden');assert.throws(()=>use(h,'w'));
+ assert.deepEqual(publicGame(h,'b').glow,['w']);assert.equal(publicGame(h,'b').abilities.w.id,'nothing');assert.throws(()=>use(h,'w'));
 });
 
 test('army advance is simultaneous and free initially, second costs two selected rooks and a turn',()=>{
@@ -166,9 +166,9 @@ test('lone black mounted king loses on fifth received threat, never while anothe
  assert.equal(g.result.winner,'w');
 });
 
-test('special extra movement and fusion cannot be inferred from opponent metadata',()=>{
+test('activated fusion is named but its private form and pending movement stay concealed',()=>{
  let g=pos('necro','mounted',{a1:'wk',h8:'bk',b8:'bn'});g=use(g,'b','b8','h8');g.turn='b';g=use(g,'b');
- const visible=publicGame(g,'w');assert(!JSON.stringify(visible).includes('mounted'));assert(!JSON.stringify(visible).includes('emperor'));assert.equal(visible.extraMove,undefined);
+ const visible=publicGame(g,'w');assert.equal(visible.abilities.b.id,'mounted');assert(!JSON.stringify(visible).includes('emperor'));assert.equal(visible.extraMove,undefined);
  const own=publicGame(g,'b');assert.deepEqual(movesFor(own,sq('h8')),movesFor(g,sq('h8')));
 });
 
