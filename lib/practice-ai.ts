@@ -1,4 +1,4 @@
-import {CARDS,createGame,applyAction,movesFor,abilityTargets,abilityError,generalAssignment,other,isRoyal,kindName,square} from './game.ts';
+import {CARDS,createGame,applyAction,movesFor,abilityTargets,abilityError,generalAssignment,other,isRoyal,kindName,square,abilityStates,cardInfo} from './game.ts';
 import type {Game,Side,CardId,CardPool,Action,Kind} from './game.ts';
 export type EvaluationMode='practical'|'theory';
 export type Difficulty='easy'|'normal'|'hard';
@@ -24,16 +24,17 @@ export function legalActions(g:Game,side:Side=actor(g)):Action[]{
  if(g.phase==='duel'){for(const gesture of ['rock','paper','scissors'] as const)add({type:'duel',gesture});return list;}
  if(g.turn===side)g.board.forEach((p,from)=>{if(p?.color===side)for(const m of movesFor(g,from))promote({type:'move',from,to:m.to},p.kind==='p');});
  if(g.extraMove?.side===side)add({type:'skipExtra'});
- if(abilityError(g,side))return list;
- const a=g.abilities[side],id=a.id,starts=abilityTargets(g,side);
- if(id==='necro'){for(let capture=0;capture<g.captured[side].length;capture++)for(const to of starts)promote({type:'ability',capture,to},g.captured[side][capture].kind==='p');}
- else if(['exorcism','shallNotPass'].includes(id)||id==='burrow'&&!a.burrow||id==='general'&&generalAssignment(g,side)){for(const from of starts)add({type:'ability',from});}
- else if(['spaceTravel','equality','shiningKnight','gatling'].includes(id)||id==='mounted'&&!a.fusion||id==='general'||id==='armyForward'&&a.uses===1){
-  for(const from of starts){
-   for(const to of abilityTargets(g,side,from))promote({type:'ability',from,to},['spaceTravel','shiningKnight'].includes(id)&&g.board[from]?.kind==='p');
-   if(id==='gatling'&&(a.ammo??0)>=8)add({type:'ability',from,mode:'burst'});
-  }
- }else add({type:'ability'});
+ for(const a of abilityStates(g,side)){
+  if(a.id==='hidden'||abilityError(g,side,a.id))continue;const id=a.id,starts=abilityTargets(g,side,undefined,id),base={type:'ability' as const,card:id};
+  if(id==='necro'){for(let capture=0;capture<g.captured[side].length;capture++)for(const to of starts)promote({...base,capture,to},g.captured[side][capture].kind==='p');}
+  else if(['exorcism','shallNotPass'].includes(id)||id==='burrow'&&!a.burrow||id==='general'&&generalAssignment(g,side)){for(const from of starts)add({...base,from});}
+  else if(['spaceTravel','equality','shiningKnight','gatling'].includes(id)||id==='mounted'&&!a.fusion||id==='general'||id==='armyForward'&&a.uses===1){
+   for(const from of starts){
+    for(const to of abilityTargets(g,side,from,id))promote({...base,from,to},['spaceTravel','shiningKnight'].includes(id)&&g.board[from]?.kind==='p');
+    if(id==='gatling'&&(a.ammo??0)>=8)add({...base,from,mode:'burst'});
+   }
+  }else add(base);
+ }
  return list;
 }
 export function actionLabel(a:Action,g?:Game,side?:Side):string {
@@ -42,7 +43,7 @@ export function actionLabel(a:Action,g?:Game,side?:Side):string {
  if(a.type==='duel')return {rock:'바위',paper:'보',scissors:'가위'}[a.gesture!];
  if(a.type==='skipExtra')return '추가 이동 건너뛰기';
  if(a.type==='resign')return '기권';
- const name=a.type==='ability'?(a.mode==='burst'?'8발 모두 사용':'능력 사용'):g&&a.from!==undefined?kindName[g.board[a.from]?.kind??'p']:'이동';
+ const name=a.type==='ability'?(a.mode==='burst'?'8발 모두 사용':a.card?cardInfo(a.card).name:'능력 사용'):g&&a.from!==undefined?kindName[g.board[a.from]?.kind??'p']:'이동';
  const revived=a.capture!==undefined&&g&&side?` · ${kindName[g.captured[side][a.capture]?.kind??'p']} 부활`:'';
  return `${name}${revived}${a.from!==undefined?' · '+square(a.from):''}${a.to!==undefined?' → '+square(a.to):''}${a.promotion?' · '+kindName[a.promotion]+' 승격':''}`;
 }
@@ -94,7 +95,7 @@ export function inferWorlds(k:Knowledge,deadline=Infinity):{worlds:Game[];incomp
 export function evaluate(g:Game):number {
  if(g.result)return g.result.winner==='draw'?0:g.result.winner==='w'?10000:-10000;
  let score=0;
- for(const s of ['w','b'] as Side[]){let v=0;const a=g.abilities[s];
+ for(const s of ['w','b'] as Side[]){let v=0;
   for(let i=0;i<64;i++){const p=g.board[i];if(!p||p.color!==s)continue;
    const advancement=s==='w'?6-Math.floor(i/8):Math.floor(i/8)-1;
    v+=value[p.kind]+(p.kind==='p'?Math.max(0,advancement)*.1: p.kind!=='k'?(3.5-Math.abs(i%8-3.5)+3.5-Math.abs(Math.floor(i/8)-3.5))*.025:0);
@@ -102,11 +103,13 @@ export function evaluate(g:Game):number {
    // Movement-changing abilities have value even before they take a piece.
    v+=movesFor(g,i).length*.012;
   }
-  if(a.burrow)v+=value[a.burrow.piece.kind]*.7;
-  v+=(a.ammo??0)*.22+(a.power?.left??0)*.055+(a.general?.kills??0)*.28;
-  if(a.id==='equality')v+=a.castleCount*.3+(a.castleCount>=6?2:0);
-  if(a.id==='reactionary'&&a.active)v-=a.threats*.8;
-  if(a.id==='mounted'&&s==='b'&&a.fusion)v-=a.threats*.5;
+  for(const a of abilityStates(g,s)){
+   if(a.burrow)v+=value[a.burrow.piece.kind]*.7;
+   v+=(a.ammo??0)*.22+(a.power?.left??0)*.055+(a.general?.kills??0)*.28;
+   if(a.id==='equality')v+=a.castleCount*.3+(a.castleCount>=6?2:0);
+   if(a.id==='reactionary'&&a.active)v-=a.threats*.8;
+   if(a.id==='mounted'&&s==='b'&&a.fusion)v-=a.threats*.5;
+  }
   score+=s==='w'?v:-v;
  }
  return score;

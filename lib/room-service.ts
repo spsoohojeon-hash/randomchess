@@ -18,7 +18,7 @@ export async function roomApi(db:D1Database,req:Request,code?:string):Promise<Re
       const p=await body(req);let pool:CardPool;
       try{pool=normalizeCardPool(p.pool);}catch{return json({error:"능력을 1개 이상 중복 없이 선택해 주세요."},400);}
       const token=crypto.randomUUID()+crypto.randomUUID(),hash=await digest(token),now=Date.now();
-      const game=createGame(...drawCards(pool));
+      const game=createGame(...drawCards(pool),pool);
       for(let attempt=0;attempt<4;attempt++){
         const roomCode=randomCode();
         const res=await db.prepare("INSERT OR IGNORE INTO chess_rooms (code, white_token, game, pool, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)").bind(roomCode,hash,JSON.stringify(game),pool==="all"?pool:JSON.stringify(pool),now,now+7*86400000).run();
@@ -51,7 +51,7 @@ export async function roomApi(db:D1Database,req:Request,code?:string):Promise<Re
     if(p.type==="rematch"){
       if(game.phase!=="over")return json({error:"대국이 끝난 뒤 다시 할 수 있습니다."},400);
       if(!rematch.includes(side))rematch.push(side);
-      if(rematch.length===2){game=createGame(...drawCards(storedPool(row.pool)));game.revision=JSON.parse(row.game).revision+1;rematch=[];}
+      if(rematch.length===2){const pool=storedPool(row.pool);game=createGame(...drawCards(pool),pool);game.revision=JSON.parse(row.game).revision+1;rematch=[];}
     }else if(p.type==="action"){
       try{game=applyAction(game,side,p.action as Action);}catch(e){return json({error:e instanceof Error?e.message:"둘 수 없는 수입니다."},400);}
     }else return json({error:"지원하지 않는 동작입니다."},400);
