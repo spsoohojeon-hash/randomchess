@@ -44,7 +44,7 @@ test('wild horse combines with both mounted forms, before or after fusion, inclu
    a1:'wk',h8:'bk',b1:s+'n',d4:s+(s==='w'?'r':'k'),f7:(s==='w'?'b':'w')+'r'
   });if(s==='b')g.board[sq('h8')]=null;g.turn=s;
   add(g,s,'wildHorse');if(first)g=use(g,s,'wildHorse');g=use(g,s,'mounted','b1','d4');if(!first)g=use(g,s,'wildHorse');
-  assert(can(g,'d4','f7'));assert(!can(g,'d4','f5'));assert(can(g,'d4',s==='w'?'g4':'e4'));
+  assert(can(g,'d4','f7'));assert(can(g,'d4','f5'));assert(can(g,'d4',s==='w'?'g4':'e4'));
   assert.deepEqual(publicGame(g,s).onlineView.moves[sq('d4')],movesFor(g,sq('d4')));
   g=move(g,'d4','f7');assert.equal(g.board[sq('f7')].color,s);assert.equal(g.board[sq('f7')].wildMoved,true);
   assert.equal(giveMePieceScore(g,g.board[sq('f7')]),s==='w'?14:25);
@@ -54,7 +54,7 @@ test('wild horse combines with both mounted forms, before or after fusion, inclu
 test('black mounted double move uses the upgraded knight step first and king step second',()=>{
  let g=position('necro','mounted',{a1:'wk',h8:'bk',b8:'bn',f5:'wp'});add(g,'b','wildHorse',{active:true});
  g=use(g,'b','mounted','b8','h8');g.turn='b';g=use(g,'b','mounted');
- assert(can(g,'h8','f5'));assert(!can(g,'h8','f7'));assert(!can(g,'h8','g8'));
+ assert(can(g,'h8','f5'));assert(can(g,'h8','f7'));assert(!can(g,'h8','g8'));
  g=move(g,'h8','f5');assert.equal(g.turn,'b');assert(!can(g,'f5','d2'));assert(can(g,'f5','e5'));
  g=move(g,'f5','e5');assert.equal(g.turn,'w');assert.equal(g.abilities.b.fusion.doubleUses,1);
 });
@@ -72,7 +72,7 @@ test('three-way mounted upgrades accumulate moves and points without double-coun
  g.board[sq('b1')].promoted=true;g.board[sq('d4')].promoted=true;
  add(g,'w','versatile');add(g,'w','wildHorse',{active:true});g=use(g,'w','mounted','b1','d4');
  for(const to of ['a4','g7','f7','e4'])assert(can(g,'d4',to),to);
- assert(!can(g,'d4','f5'));assert.equal(giveMePieceScore(g,g.board[sq('d4')]),21); // 9 + 6 + 5 + 1
+ assert(can(g,'d4','f5'));assert.equal(giveMePieceScore(g,g.board[sq('d4')]),21); // 9 + 6 + 5 + 1
  const n=movesFor(g,sq('d4'));assert.equal(new Set(n.map(m=>m.to)).size,n.length);
 });
 
@@ -97,4 +97,31 @@ test('Give Me awards the summed mounted score on a real recapture',()=>{
  g=use(g,'w','mounted','b1','d4');g=move(g,'d4','f7');g=move(g,'f8','f7');
  assert.equal(g.giveMe.w.score,4);assert.deepEqual(g.deck,['versatile']);
  assert.deepEqual(g.extraAbilities.w.map(a=>a.id),['wildHorse','giveMe','nothing','burrow']);
+});
+
+test('ability-provided knight moves coexist with wild jumps on versatile rooks and empowered kings',()=>{
+ for(const kind of ['r','k']){
+  const g=position('wildHorse','necro',{a1:'wk',h8:'bk',d4:'w'+kind,f5:'bp',f7:'br'});g.abilities.w.active=true;
+  if(kind==='r')add(g,'w','versatile');else add(g,'w','kingReturn',{power:{mode:'bn',left:3,score:3}});
+  for(const to of ['f5','f7','g7']){assert(can(g,'d4',to));assert(movesFor(g,sq('d4'),true).some(m=>m.to===sq(to)));}
+  for(const to of ['f5','f7'])assert.equal(move(g,'d4',to).board[sq(to)].color,'w');
+ }
+});
+
+test('black mounted second move keeps all king movement abilities',()=>{
+ for(const id of ['kingReturn','queenRule']){
+  let g=position('necro','mounted',{a1:'wk',h8:'bk',b8:'bn',h7:'bq',f2:'wr'});
+  add(g,'b','wildHorse',{active:true});
+  add(g,'b',id,id==='kingReturn'?{power:{mode:'q',left:3,score:9}}:{active:true});
+  g=use(g,'b','mounted','b8','h8');g.turn='b';g=use(g,'b','mounted');g=move(g,'h8','f5');
+  assert(can(g,'f5','f2'));assert(!can(g,'f5','d4'));assert(!can(g,'f5','d2'));
+  g=move(g,'f5','f2');assert.equal(g.turn,'w');assert.equal(g.captured.b[0].kind,'r');
+ }
+});
+
+test('general pawn combines king moves with forward-pawn captures without restoring other pawn rules',()=>{
+ let g=position('general','necro',{a1:'wk',h8:'bk',d2:'wp',d4:'br'});
+ g.abilities.w.general={id:'wd2',kills:2};add(g,'w','forwardPawns',{active:true});
+ assert(can(g,'d2','d4'));assert(can(g,'d2','e2'));assert(can(g,'d2','c1'));
+ g=move(g,'d2','d4');assert.equal(g.abilities.w.general.kills,3);assert.equal(g.board[sq('d4')].id,'wd2');
 });
