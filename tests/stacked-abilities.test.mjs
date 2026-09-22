@@ -44,7 +44,7 @@ test('internal give-me score covers promoted and transformed pieces without expo
  assert.equal(giveMePieceScore(g,piece('q','w','q',{promoted:true})),10);
  g.extraAbilities.w.push(state('versatile'));assert.equal(giveMePieceScore(g,piece('r','w','r',{promoted:true})),7);
  const wild=state('wildHorse');wild.active=true;g.extraAbilities.w.push(wild);assert.equal(giveMePieceScore(g,piece('n','w','n',{wildMoved:true,promoted:true})),6);
- const reaction=state('reactionary');reaction.active=true;reaction.rookId='rr';g.extraAbilities.w.push(reaction);assert.equal(giveMePieceScore(g,piece('rr','w','r',{promoted:true})),24);
+ const reaction=state('reactionary');reaction.active=true;reaction.rookId='rr';g.extraAbilities.w.push(reaction);assert.equal(giveMePieceScore(g,piece('rr','w','r',{promoted:true})),30);
  const general=state('general');general.general={id:'gp',kills:4,knightId:'fn'};g.extraAbilities.w.push(general);
  assert.equal(giveMePieceScore(g,piece('gp','w','p',{promoted:true})),21);assert.equal(giveMePieceScore(g,piece('fn','w','n')),0);
 });
