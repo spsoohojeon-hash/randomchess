@@ -109,7 +109,7 @@ function applyExtreme(g:Game,s:Side){
     if(target){if(target.kind==="q"&&isRoyal(g,target))fallen.push(target.color);onCapture(g,piece,target);explode(g,at,s,fallen);}
   }
 }
-export function createGame(white:CardId="wildHorse",black:CardId="necro",pool:CardPool="all"):Game {
+export function createGame(white:CardId="wildHorse",black:CardId="necro",pool:CardPool="all",randomizeDeck=true):Game {
   const board:(Piece|null)[]=Array(64).fill(null);
   const back:Kind[]=["r","n","b","q","k","b","n","r"];
   for(const s of ["w","b"] as Side[]) {
@@ -119,7 +119,8 @@ export function createGame(white:CardId="wildHorse",black:CardId="necro",pool:Ca
     }
   }
   const normalized=normalizeCardPool(pool),poolIds=normalized==="all"?CARDS.map(c=>c.id):normalized;
-  const g:Game={board,turn:"w",ply:0,abilities:{w:ability(white),b:ability(black)},extraAbilities:{w:[],b:[]},deck:shuffleCards(poolIds.filter(id=>id!==white&&id!==black&&id!=="giveMe")),giveMe:{w:{score:0,mark:null},b:{score:0,mark:null}},captured:{w:[],b:[]},phase:"play",doubleLeft:0,ep:null,ban:{w:null,b:null},result:null,pending:null,duel:null,drawOffer:null,log:[],serial:0,lastAction:null,revision:0,undo:[]};
+  const deck=poolIds.filter(id=>id!==white&&id!==black&&id!=="giveMe");
+  const g:Game={board,turn:"w",ply:0,abilities:{w:ability(white),b:ability(black)},extraAbilities:{w:[],b:[]},deck:randomizeDeck?shuffleCards(deck):deck,giveMe:{w:{score:0,mark:null},b:{score:0,mark:null}},captured:{w:[],b:[]},phase:"play",doubleLeft:0,ep:null,ban:{w:null,b:null},result:null,pending:null,duel:null,drawOffer:null,log:[],serial:0,lastAction:null,revision:0,undo:[]};
   for(const s of ["w","b"] as Side[])if(g.abilities[s].id==="extremeEfficiency")applyExtreme(g,s);
   for(const s of ["w","b"] as Side[])if(g.abilities[s].id==="metamon"){
     const opponent=g.abilities[other(s)];opponent.revealed=true;
@@ -401,7 +402,7 @@ function resolveRoyals(g:Game,fallenQueens:Side[]=[]){
 function finishTurn(g:Game,by:Side){for(const s of ["w","b"] as Side[])if(g.giveMe?.[s].mark?.reply===by)g.giveMe[s].mark=null;delete g.extraMove;g.doubleLeft=0;g.turn=other(by);}
 function afterAction(g:Game,by:Side,fallenQueens:Side[]=[],generalMoved=false){
   if(g.phase!=="play")return;
-  resolveRoyals(g,fallenQueens);if(g.phase==="over")return;
+  resolveRoyals(g,fallenQueens);if(g.result)return;
   const defender=other(by),reaction=hasAbility(g,defender,"reactionary"),mounted=hasAbility(g,defender,"mounted");
   if(reaction?.active&&threatened(g,defender).length){reaction.threats++;record(g,by,`왕룩 위협 ${reaction.threats}/3`,true);if(reaction.threats>=3){end(g,by,"왕룩에 대한 위협이 3회 누적되었습니다.");return;}}
   if(defender==="b"&&mounted?.fusion&&g.board.filter(p=>p?.color==="b").length===1&&threatened(g,"b").length){
