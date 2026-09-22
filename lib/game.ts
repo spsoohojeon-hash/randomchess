@@ -149,6 +149,11 @@ export function isRoyal(g:Core,p:Piece):boolean {
   if(reaction?.active)return p.id===reaction.rookId;
   return p.kind==="k";
 }
+function knightStepsFor(g:Core,s:Side):number[][] {return hasAbility(g,s,"wildHorse")?.active?wildSteps:knight;}
+function hasKnightMovement(g:Core,p:Piece):boolean {
+  const power=hasAbility(g,p.color,"kingReturn")?.power;
+  return p.kind==="n"||!!p.form||p.kind==="r"&&!!hasAbility(g,p.color,"versatile")||p.kind==="k"&&!!power&&power.left>0&&power.mode!=="q";
+}
 export function movesFor(g:Core,from:number,attacks=false):Move[] {
   if(g.onlineView)return attacks?[]:g.onlineView.moves[from]??[];
   const p=g.board[from];if(!p)return [];
@@ -161,8 +166,9 @@ export function movesFor(g:Core,from:number,attacks=false):Move[] {
   const jump=(steps:number[][])=>steps.forEach(([dr,dc])=>add(r+dr,c+dc));
   const slide=(dirs:number[][])=>{for(const [dr,dc] of dirs){let nr=r+dr,nc=c+dc;while(nr>=0&&nr<8&&nc>=0&&nc<8){const t=g.board[nr*8+nc];add(nr,nc);if(t)break;nr+=dr;nc+=dc;}}};
   if(general?.general?.id===p.id&&general.general.kills>=2)jump(kingSteps);
-  else if(p.form){jump(knight);if(p.form==="prince")slide(straight);else jump(kingSteps);}
   else {
+  // A mounted piece keeps both components, including their other upgrades.
+  if(p.form)jump(knightStepsFor(g,p.color));
   if(p.kind==="p"){
     const dir=p.color==="w"?-1:1;
     const forward=!!hasAbility(g,p.color,"forwardPawns")?.active;
@@ -180,13 +186,16 @@ export function movesFor(g:Core,from:number,attacks=false):Move[] {
       }
     }
   }
-  if(p.kind==="n")jump(hasAbility(g,p.color,"wildHorse")?.active?wildSteps:knight);
+  if(p.kind==="n")jump(knightStepsFor(g,p.color));
   if(p.kind==="b")slide(diag);
-  if(p.kind==="r"){if(hasAbility(g,p.color,"versatile")){slide(diag);jump(knight);jump(kingSteps);}else slide(straight);}
+  if(p.kind==="r"){
+    if(hasAbility(g,p.color,"versatile")){slide(diag);jump(knightStepsFor(g,p.color));jump(kingSteps);}
+    if(!hasAbility(g,p.color,"versatile")||p.form==="prince"||hasAbility(g,p.color,"reactionary")?.rookId===p.id)slide(straight);
+  }
   if(p.kind==="q"){if(queenRule?.active)jump(kingSteps);else slide(kingSteps);}
   if(p.kind==="k"){
     if(queenRule?.active)slide(kingSteps);else jump(kingSteps);
-    if(kingReturn?.power&&kingReturn.power.left>0){slide(kingReturn.power.mode==="bn"?diag:kingSteps);if(kingReturn.power.mode!=="q")jump(knight);}
+    if(kingReturn?.power&&kingReturn.power.left>0){slide(kingReturn.power.mode==="bn"?diag:kingSteps);if(kingReturn.power.mode!=="q")jump(knightStepsFor(g,p.color));}
     const home=p.color==="w"?60:4;
     if(!attacks&&!p.moved&&from===home&&!queenRule?.active){
       for(const [rc,dir] of [[0,-1],[7,1]]){
@@ -203,7 +212,7 @@ export function movesFor(g:Core,from:number,attacks=false):Move[] {
     const extra=g.extraMove;
     if(extra?.side===p.color&&extra.kind!=="general"){
       const dr=Math.floor(m.to/8)-r,dc=m.to%8-c;
-      if(!(extra.kind==="mountedKnight"?knight:kingSteps).some(([rr,cc])=>rr===dr&&cc===dc))return false;
+      if(!(extra.kind==="mountedKnight"?knightStepsFor(g,p.color):kingSteps).some(([rr,cc])=>rr===dr&&cc===dc))return false;
     }
     const b=g.ban[p.color];if(b&&b.from===m.from&&b.to===m.to)return false;
     const target=g.board[m.to];return !(g.doubleLeft>0&&p.color===g.turn&&target&&(target.kind==="k"||isRoyal(g,target)));
@@ -313,23 +322,25 @@ function coreOf(g:Game):Core {const {revision,undo,...rest}=g;void revision;void
 function record(g:Game,s:Side,text:string,ability=false,move?:Move){g.log.push({n:++g.serial,side:s,text,ability,from:move?.from,to:move?.to});if(g.log.length>200)g.log.shift();}
 function end(g:Game,winner:Side|"draw",reason:string){g.phase="over";g.result={winner,reason};g.pending=null;g.drawOffer=null;delete g.extraMove;}
 function markMoved(g:Game,p:Piece){
-  if(p.kind==="n"&&hasAbility(g,p.color,"wildHorse")?.active)p.wildMoved=true;
+  if(hasKnightMovement(g,p)&&hasAbility(g,p.color,"wildHorse")?.active)p.wildMoved=true;
   p.moved=true;const home=p.color==="w"?"1":"8";
   if(["a","e","h"].some(f=>p.id===p.color+f+home))for(const a of abilityStates(g,p.color))if(a.id==="reactionary")a.eligible=false;
 }
 export function giveMePieceScore(g:Core,p:Piece):number{
   const general=hasAbility(g,p.color,"general")?.general,reaction=hasAbility(g,p.color,"reactionary"),power=hasAbility(g,p.color,"kingReturn")?.power;
-  let score:number;
-  if(general&&[general.knightId,general.bishopId].includes(p.id))score=0;
-  else if(general?.id===p.id)score=general.kills*5;
-  else if(reaction?.rookId===p.id)score=23;
-  else if(p.form==="prince")score=9;
-  else if(p.form==="emperor")score=20;
-  else if(p.kind==="k"&&power)score=power.mode==="bn"?22:power.mode==="q"?24:30;
-  else if(p.kind==="r"&&hasAbility(g,p.color,"versatile"))score=6;
-  else if(p.kind==="n"&&p.wildMoved)score=5;
-  else score=p.kind==="k"?15:values[p.kind];
-  return score+(p.promoted?1:0);
+  const promotion=p.promoted?1:0;
+  if(general&&[general.knightId,general.bishopId].includes(p.id))return promotion;
+  // Each applicable transformed form contributes its configured score once.
+  // Base piece value is only used when no scored transformation applies.
+  const parts:number[]=[];
+  if(general?.id===p.id)parts.push(general.kills*5);
+  if(reaction?.rookId===p.id)parts.push(23);
+  if(p.form==="prince")parts.push(9);
+  if(p.form==="emperor")parts.push(20);
+  if(p.kind==="k"&&power&&power.left>0)parts.push(power.mode==="bn"?22:power.mode==="q"?24:30);
+  if(p.kind==="r"&&hasAbility(g,p.color,"versatile"))parts.push(6);
+  if(hasKnightMovement(g,p)&&p.wildMoved)parts.push(5);
+  return (parts.length?parts.reduce((sum,n)=>sum+n,0):p.kind==="k"?15:values[p.kind])+promotion;
 }
 function activateDrawnAbility(g:Game,s:Side,a:Ability,dead?:Piece){
   if(["versatile","spaceTravel","giveMe"].includes(a.id)){a.active=true;a.revealed=true;}
@@ -532,8 +543,16 @@ export function applyAction(previous:Game,by:Side,action:Action):Game {
       }
       const dir=by==="w"?-8:8;
       // Determine every destination before moving: blocked pawns never follow into a vacated square.
-      const advancing=g.board.flatMap((p,i)=>p?.color===by&&p.kind==="p"&&validSquare(i+dir)&&!g.board[i+dir]?[{p,from:i,to:i+dir}]:[]);
-      for(const {p,from,to} of advancing){g.board[from]=null;g.board[to]=p;markMoved(g,p);promote(p,to,"q");}
+      const advancing=g.board.flatMap((p,i)=>p?.color===by&&p.kind==="p"&&validSquare(i+dir)&&movesFor(g,i).some(m=>m.to===i+dir)?[{p,from:i,to:i+dir,target:g.board[i+dir]}]:[]);
+      for(const {from} of advancing)g.board[from]=null;
+      for(const {to,target} of advancing)if(target){if(target.kind==="q"&&isRoyal(g,target))fallenQueens.push(target.color);take(g,to,by);}
+      for(const {p,to} of advancing)g.board[to]=p;
+      for(const {p,target} of advancing)if(target)onCapture(g,p,target);
+      for(const {p,to} of advancing){
+        markMoved(g,p);const general=hasAbility(g,by,"general")?.general;
+        if(!(general?.id===p.id&&general.kills>=2))promote(p,to,"q");
+      }
+      for(const {to,target} of advancing)if(target)explode(g,to,by,fallenQueens);
       g.ep=null;a.active=true;
     }
     else if(a.id==="general"){
@@ -571,7 +590,8 @@ export function applyAction(previous:Game,by:Side,action:Action):Game {
       if(!a.fusion){
         assert(validSquare(action.from)&&abilityTargets(g,by,undefined,a.id as CardId).includes(action.from),"융합할 내 나이트를 선택하세요.");
         assert(validSquare(action.to)&&abilityTargets(g,by,action.from,a.id as CardId).includes(action.to),by==="w"?"융합할 내 룩을 선택하세요.":"융합할 내 킹을 선택하세요.");
-        const p=g.board[action.to]!;markMoved(g,g.board[action.from]!);markMoved(g,p);p.form=by==="w"?"prince":"emperor";g.board[action.from]=null;
+        const p=g.board[action.to]!,rider=g.board[action.from]!;markMoved(g,rider);markMoved(g,p);p.form=by==="w"?"prince":"emperor";
+        if(rider.wildMoved)p.wildMoved=true;if(rider.promoted)p.promoted=true;g.board[action.from]=null;
         a.fusion={id:p.id,doubleUses:0};a.active=true;
       }else{
         assert(by==="b"&&a.fusion.doubleUses<2,"연속 이동을 사용할 수 없습니다.");
