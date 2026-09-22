@@ -1,9 +1,17 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import {createGame,applyAction,indexOf as sq,abilityStates,giveMePieceScore,publicGame} from '../lib/game.ts';
+import {createGame,applyAction,indexOf as sq,abilityStates,abilityError,giveMePieceScore,publicGame} from '../lib/game.ts';
 
 const piece=(id,color,kind,extra={})=>({id,color,kind,moved:false,...extra});
 const state=id=>structuredClone(createGame(id,'necro').abilities.w);
+function drawFromRecapture(deck,black='necro'){
+ let g=empty('giveMe',black);
+ g.board[sq('a1')]=piece('wr','w','r');g.board[sq('a2')]=piece('bp','b','p');
+ g.board[sq('b3')]=piece('bb','b','b');g.board[sq('b1')]=piece('bb2','b','b');
+ g.deck=deck;g.giveMe.w.score=2;
+ g=applyAction(g,'w',{type:'move',from:sq('a1'),to:sq('a2')});
+ return applyAction(g,'b',{type:'move',from:sq('b3'),to:sq('a2')});
+}
 function empty(w='giveMe',b='necro'){
  const g=createGame(w,b);g.board.fill(null);g.phase='play';g.pending=null;
  g.board[sq('e1')]=piece('wk','w','k');g.board[sq('e8')]=piece('bk','b','k');return g;
@@ -63,4 +71,38 @@ test('online view sends question cards for unrevealed extras and reveals a used 
  const used=applyAction(g,'w',{type:'ability',card:'nothing'});
  assert.equal(publicGame(used,'b').extraAbilities.w[0].id,'nothing');
  assert.equal(publicGame(used,'b').deck,undefined);
+});
+
+test('newly drawn no-that-move survives its own rewind without returning to the deck or refunding uses',()=>{
+ const drawn=drawFromRecapture(['noThatMove','nothing','wildHorse']);
+ let g=applyAction(drawn,'w',{type:'ability',card:'noThatMove'});
+ assert.deepEqual(abilityStates(g,'w').map(a=>a.id),['giveMe','noThatMove']);
+ assert.equal(g.extraAbilities.w[0].uses,1);assert.equal(g.abilities.w.uses,0);
+ assert.equal(g.giveMe.w.score,2);assert.deepEqual(g.deck,['nothing','wildHorse']);
+ assert.equal(g.board[sq('a2')].id,'wr');assert.equal(g.board[sq('b3')].id,'bb');assert.equal(g.turn,'b');
+ assert.throws(()=>applyAction(g,'b',{type:'move',from:sq('b3'),to:sq('a2')}));
+ assert.equal(publicGame(g,'b').extraAbilities.w[0].id,'noThatMove');
+ assert.equal(drawn.extraAbilities.w[0].uses,0);
+ // A different legal recapture draws the next card, never the rewind card again.
+ g=applyAction(g,'b',{type:'move',from:sq('b1'),to:sq('a2')});
+ assert.deepEqual(abilityStates(g,'w').map(a=>a.id),['giveMe','noThatMove','nothing']);
+ g=applyAction(g,'w',{type:'ability',card:'noThatMove'});
+ assert.equal(g.extraAbilities.w[0].uses,2);assert.equal(g.giveMe.w.score,2);
+ assert.deepEqual(g.deck,['wildHorse']);assert.match(abilityError(g,'w','noThatMove'),/모두 사용/);
+});
+
+test('newly drawn time stone keeps acquired cards, score, and deck across a two-move rewind',()=>{
+ let g=drawFromRecapture(['temusanTimeStone','nothing']);
+ g=applyAction(g,'w',{type:'ability',card:'temusanTimeStone'});
+ assert.equal(g.board[sq('a1')].id,'wr');assert.equal(g.board[sq('a2')].id,'bp');assert.equal(g.board[sq('b3')].id,'bb');
+ assert.equal(g.turn,'w');assert.equal(g.extraAbilities.w[0].id,'temusanTimeStone');
+ assert.equal(g.extraAbilities.w[0].uses,1);assert.equal(g.giveMe.w.score,2);assert.deepEqual(g.deck,['nothing']);
+});
+
+test('a drawn Metamon copying no-that-move keeps its card origin and independent usage after rewind',()=>{
+ let g=drawFromRecapture(['metamon','nothing'],'noThatMove');
+ g=applyAction(g,'w',{type:'ability',card:'noThatMove'});
+ assert.equal(g.extraAbilities.w[0].id,'noThatMove');assert.equal(g.extraAbilities.w[0].source,'metamon');
+ assert.equal(g.extraAbilities.w[0].uses,1);assert.equal(g.abilities.b.uses,0);assert.deepEqual(g.deck,['nothing']);
+ assert.equal(publicGame(g,'b').extraAbilities.w[0].id,'noThatMove');
 });

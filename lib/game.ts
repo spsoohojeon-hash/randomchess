@@ -434,10 +434,28 @@ function restoreMove(g:Game,s:Side,id:CardId){
   const last=id==="noThatMove"?g.undo.length-1:g.undo.findLastIndex(h=>h.by===s);
   assert(last>=0,"되돌릴 수가 없습니다.");const h=g.undo[last];
   if(id==="noThatMove")assert(h.by===other(s),"상대의 마지막 이동만 취소할 수 있습니다.");
-  const uses=Object.fromEntries((["w","b"] as Side[]).flatMap(side=>abilityStates(g,side).filter(a=>a.id==="noThatMove"||a.id==="temusanTimeStone").map(a=>[side+":"+a.id,a.uses])));const history=g.undo.slice(0,last);const serial=g.serial;
+  const owned={w:abilityStates(g,"w"),b:abilityStates(g,"b")},deck=g.deck,rewards=g.giveMe;
+  const history=g.undo.slice(0,last),serial=g.serial;
   Object.assign(g,clone(h.before));g.undo=history;g.serial=serial;
-  for(const side of ["w","b"] as Side[])for(const a of abilityStates(g,side))if(a.id==="noThatMove"||a.id==="temusanTimeStone")a.uses=Math.max(a.uses,Number(uses[side+":"+a.id]??0));
-  abilityState(g,s,id).uses++;
+  // Card ownership and the shared draw pile are permanent, even when the move
+  // that awarded a card is undone. Board-dependent ability effects still rewind.
+  if(deck)g.deck=deck;
+  for(const side of ["w","b"] as Side[]){
+    if(rewards?.[side]){g.giveMe??=clone(rewards);g.giveMe[side].score=rewards[side].score;}
+    const restored=abilityStates(g,side);
+    for(let i=restored.length;i<owned[side].length;i++){
+      const current=owned[side][i],acquired=ability(current.id as CardId);
+      if(current.source)acquired.source=current.source;
+      g.extraAbilities??={w:[],b:[]};g.extraAbilities[side].push(acquired);restored.push(acquired);
+      activateDrawnAbility(g,side,acquired);
+    }
+    restored.forEach((a,i)=>{
+      const current=owned[side][i];if(!current)return;
+      if(current.revealed)a.revealed=true;
+      if(a.id==="noThatMove"||a.id==="temusanTimeStone")a.uses=Math.max(a.uses,current.uses);
+    });
+  }
+  const rewind=hasAbility(g,s,id);assert(rewind,"되돌리기 능력이 없습니다.");rewind.uses++;rewind.revealed=true;
   if(id==="noThatMove")g.ban[h.by]=h.move;
   g.lastAction="ability";
   record(g,s,`${cardInfo(id).name} · ${square(h.move.from)}–${square(h.move.to)} 취소`,true);
