@@ -24,7 +24,9 @@ function PieceIcon({piece,small=false,rainbow=false}:{piece:Pick<Piece,"kind"|"c
   </Icon>;
 }
 function AbilityIcon({id}:{id:CardId}){const Icon=icons[cardInfo(id).icon as keyof typeof icons];return <Icon aria-hidden="true"/>;}
-const initial=createGame();
+// Keep the server-rendered shell deterministic. Real games reshuffle their deck
+// when they are created, but module initialization must not consume randomness.
+const initial=createGame("wildHorse","necro","all",false);
 
 export default function ChessGame(){
   const [practice,setPractice]=useState(false);
