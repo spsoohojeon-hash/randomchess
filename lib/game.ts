@@ -149,7 +149,12 @@ export function isRoyal(g:Core,p:Piece):boolean {
   if(reaction?.active)return p.id===reaction.rookId;
   return p.kind==="k";
 }
-function knightStepsFor(g:Core,s:Side):number[][] {return hasAbility(g,s,"wildHorse")?.active?wildSteps:knight;}
+function knightStepsFor(g:Core,s:Side,abilityGranted=false):number[][] {
+  if(!hasAbility(g,s,"wildHorse")?.active)return knight;
+  // Wild Horse replaces a plain knight's movement. An independent ability's
+  // knight component still contributes its own ordinary jumps to the union.
+  return abilityGranted?[...knight,...wildSteps]:wildSteps;
+}
 function hasKnightMovement(g:Core,p:Piece):boolean {
   const power=hasAbility(g,p.color,"kingReturn")?.power;
   return p.kind==="n"||!!p.form||p.kind==="r"&&!!hasAbility(g,p.color,"versatile")||p.kind==="k"&&!!power&&power.left>0&&power.mode!=="q";
@@ -158,6 +163,7 @@ export function movesFor(g:Core,from:number,attacks=false):Move[] {
   if(g.onlineView)return attacks?[]:g.onlineView.moves[from]??[];
   const p=g.board[from];if(!p)return [];
   const general=hasAbility(g,p.color,"general"),queenRule=hasAbility(g,p.color,"queenRule"),kingReturn=hasAbility(g,p.color,"kingReturn"),r=Math.floor(from/8),c=from%8,out:Move[]=[];
+  const mountedKnightTargets=new Set<number>(),mountedKingTargets=new Set<number>();
   if(!attacks&&g.extraMove?.side===p.color&&!g.extraMove.ids.includes(p.id))return [];
   const add=(nr:number,nc:number,extra:Partial<Move>={})=>{
     if(nr<0||nr>7||nc<0||nc>7)return;
@@ -165,10 +171,11 @@ export function movesFor(g:Core,from:number,attacks=false):Move[] {
   };
   const jump=(steps:number[][])=>steps.forEach(([dr,dc])=>add(r+dr,c+dc));
   const slide=(dirs:number[][])=>{for(const [dr,dc] of dirs){let nr=r+dr,nc=c+dc;while(nr>=0&&nr<8&&nc>=0&&nc<8){const t=g.board[nr*8+nc];add(nr,nc);if(t)break;nr+=dr;nc+=dc;}}};
-  if(general?.general?.id===p.id&&general.general.kills>=2)jump(kingSteps);
-  else {
+  const generalMovement=general?.general?.id===p.id&&general.general.kills>=2;
+  if(generalMovement)jump(kingSteps);
+  if(!generalMovement||p.kind==="p"&&hasAbility(g,p.color,"forwardPawns")?.active){
   // A mounted piece keeps both components, including their other upgrades.
-  if(p.form)jump(knightStepsFor(g,p.color));
+  if(p.form){const start=out.length;jump(knightStepsFor(g,p.color,true));for(const m of out.slice(start))mountedKnightTargets.add(m.to);}
   if(p.kind==="p"){
     const dir=p.color==="w"?-1:1;
     const forward=!!hasAbility(g,p.color,"forwardPawns")?.active;
@@ -189,13 +196,14 @@ export function movesFor(g:Core,from:number,attacks=false):Move[] {
   if(p.kind==="n")jump(knightStepsFor(g,p.color));
   if(p.kind==="b")slide(diag);
   if(p.kind==="r"){
-    if(hasAbility(g,p.color,"versatile")){slide(diag);jump(knightStepsFor(g,p.color));jump(kingSteps);}
+    if(hasAbility(g,p.color,"versatile")){slide(diag);jump(knightStepsFor(g,p.color,true));jump(kingSteps);}
     if(!hasAbility(g,p.color,"versatile")||p.form==="prince"||hasAbility(g,p.color,"reactionary")?.rookId===p.id)slide(straight);
   }
   if(p.kind==="q"){if(queenRule?.active)jump(kingSteps);else slide(kingSteps);}
   if(p.kind==="k"){
+    const start=out.length;
     if(queenRule?.active)slide(kingSteps);else jump(kingSteps);
-    if(kingReturn?.power&&kingReturn.power.left>0){slide(kingReturn.power.mode==="bn"?diag:kingSteps);if(kingReturn.power.mode!=="q")jump(knightStepsFor(g,p.color));}
+    if(kingReturn?.power&&kingReturn.power.left>0){slide(kingReturn.power.mode==="bn"?diag:kingSteps);if(kingReturn.power.mode!=="q")jump(knightStepsFor(g,p.color,true));}
     const home=p.color==="w"?60:4;
     if(!attacks&&!p.moved&&from===home&&!queenRule?.active){
       for(const [rc,dir] of [[0,-1],[7,1]]){
@@ -204,6 +212,7 @@ export function movesFor(g:Core,from:number,attacks=false):Move[] {
         if(free)add(r,c+2*dir,{special:"castle",rookFrom:ri,rookTo:from+dir});
       }
     }
+    if(p.form==="emperor")for(const m of out.slice(start))mountedKingTargets.add(m.to);
   }
   }
   const unique=out.filter((m,i)=>out.findIndex(n=>n.to===m.to)===i);
@@ -211,8 +220,7 @@ export function movesFor(g:Core,from:number,attacks=false):Move[] {
   return unique.filter(m=>{
     const extra=g.extraMove;
     if(extra?.side===p.color&&extra.kind!=="general"){
-      const dr=Math.floor(m.to/8)-r,dc=m.to%8-c;
-      if(!(extra.kind==="mountedKnight"?knightStepsFor(g,p.color):kingSteps).some(([rr,cc])=>rr===dr&&cc===dc))return false;
+      if(!(extra.kind==="mountedKnight"?mountedKnightTargets:mountedKingTargets).has(m.to))return false;
     }
     const b=g.ban[p.color];if(b&&b.from===m.from&&b.to===m.to)return false;
     const target=g.board[m.to];return !(g.doubleLeft>0&&p.color===g.turn&&target&&(target.kind==="k"||isRoyal(g,target)));
