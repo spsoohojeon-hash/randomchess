@@ -34,7 +34,7 @@ export const CARDS: Card[] = [
   { id:"shallNotPass",name:"You Shall Not Pass",short:"비숍과 같은 열을 제거",description:"버튼으로 내 비숍 하나를 지정해 같은 세로줄의 상대 기물을 모두 잡습니다. 중간 기물에 막히지 않으며 킹은 면역입니다. 1회, 한 턴을 사용합니다.",mode:"once",classic:false,icon:"ban" },
   { id:"mounted",name:"백마 탄 왕자님, 흑마 탄 임금님",short:"나이트와 영구 융합",description:"백은 내 나이트와 룩, 흑은 내 나이트와 킹을 영구 융합합니다. 나이트가 대상 칸으로 이동하며 두 기물의 이동을 모두 얻습니다. 융합은 1회, 턴 소모 없음. 흑은 게임당 2번 나이트 이동 한 번과 킹 이동 한 번을 한 턴에 연속 사용합니다. 흑마 탄 임금님만 남은 뒤 상대 행동으로 체크를 5번 받으면 흑이 패배합니다.",mode:"repeat",classic:false,icon:"horse" },
   { id:"metamon",name:"메타몽",short:"상대 능력으로 변신",description:"게임 시작 시 상대 능력을 공개하고 이 카드는 그 능력으로 변합니다. 상대 능력이 5수 앞 또는 양심테스트라면 즉시 승리합니다.",mode:"passive",classic:false,icon:"shuffle" },
-  { id:"giveMe",name:"줄건줘",short:"되잡히면 능력을 뽑는다",description:"내 기물이 상대 기물을 잡고 바로 다음 상대 턴에 그 기물이 잡히면 점수를 얻습니다. 5점마다 남은 공용 덱에서 능력 하나를 즉시 뽑고 남은 점수는 유지합니다. 한 번에 속전속결·5수 앞·양심테스트 중 둘 이상을 뽑으면 즉시 승리합니다.",mode:"passive",classic:false,icon:"hand" },
+  { id:"giveMe",name:"줄건줘",short:"되잡히면 능력을 뽑는다",description:"내 기물이 상대 기물을 잡고 바로 다음 상대 턴에 그 기물이 잡히면 점수를 얻습니다. 5점마다 남은 공용 덱에서 능력 하나를 즉시 뽑고 남은 점수는 유지합니다. 킹 포획 시에는 먼저 뽑은 능력으로 생존 여부를 결정합니다. 한 번에 속전속결·5수 앞·양심테스트 중 둘 이상을 뽑으면 즉시 승리합니다.",mode:"passive",classic:false,icon:"hand" },
 ];
 export const cardInfo = (id: CardId | "hidden") => id === "hidden" ? {...CARDS[0], name:"비공개", short:"상대 능력", description:"상대의 능력은 공개되지 않습니다.", icon:"eye"} : CARDS.find(c => c.id === id)!;
 // The handbook describes actions without revealing special victory conditions.
@@ -70,9 +70,11 @@ export type Core = {
   giveMe?:Record<Side,{score:number;mark:null|{pieceId:string;reply:Side}}>;
   glow?:Side[];
   extraMove?:{side:Side;kind:"general"|"mountedKnight"|"mountedKing";ids:string[]};
-  captured:Record<Side,Piece[]>; phase:"play"|"reaction"|"choice"|"duel"|"over";
+  kingRewards?:{piece:Piece;points:number}[];
+  deathRescues?:Partial<Record<Side,CardId[]>>;
+  captured:Record<Side,Piece[]>; phase:"play"|"reaction"|"choice"|"duel"|"rescue"|"over";
   doubleLeft:number; ep:null|{target:number;pawn:number;for:Side}; ban:Record<Side,Move|null>;
-  result:null|{winner:Side|"draw";reason:string}; pending:null|{owner:Side;chooser:Side;options:number[];card?:CardId};
+  result:null|{winner:Side|"draw";reason:string}; pending:null|{owner:Side;chooser:Side;options:number[];card?:CardId;royalLosses?:Side[]};
   duel:null|{score:Record<Side,number>;picks:Record<Side,Gesture|null>;picked:Record<Side,boolean>;round:number;last:string};
   drawOffer:Side|null; log:Log[]; serial:number; lastAction:"move"|"ability"|null;
 };
@@ -88,7 +90,7 @@ export function visibleAbilityId(g:Core,side:Side,viewer:Side):CardId|"hidden" {
   if(side===viewer||a.uses>0||a.revealed)return a.id;
   return "hidden";
 }
-export type Action = { type:"move"|"ability"|"reaction"|"choice"|"duel"|"resign"|"draw"|"acceptDraw"|"declineDraw"|"skipExtra"; card?:CardId;from?:number;to?:number;piece?:number;capture?:number;promotion?:Kind;choice?:Side;gesture?:Gesture;mode?:"shot"|"burst" };
+export type Action = { type:"move"|"ability"|"reaction"|"choice"|"duel"|"resign"|"acceptDefeat"|"draw"|"acceptDraw"|"declineDraw"|"skipExtra"; card?:CardId;from?:number;to?:number;piece?:number;capture?:number;promotion?:Kind;choice?:Side;gesture?:Gesture;mode?:"shot"|"burst" };
 const values:Record<Kind,number> = {p:1,n:3,b:3,r:5,q:9,k:0};
 const clone = <T,>(x:T):T => structuredClone(x);
 const validSquare = (i:unknown): i is number => Number.isInteger(i) && Number(i)>=0 && Number(i)<64;
@@ -307,6 +309,10 @@ export function abilityTargets(g:Core,s:Side,from?:number,card?:CardId):number[]
   return [];
 }
 export function abilityError(g:Game,s:Side,card?:CardId):string|null {
+  if(g.phase==="rescue"){
+    if(g.pending?.chooser!==s||!card||!g.deathRescues?.[s]?.includes(card))return "킹 포획으로 얻은 구제 능력을 먼저 선택하세요.";
+    return abilityError({...g,phase:"play",turn:s,extraMove:undefined},s,card);
+  }
   if(g.phase!=="play")return "지금은 능력을 사용할 수 없습니다.";
   const a=abilityState(g,s,card),info=cardInfo(a.id);
   if(a.id==="burrow"&&a.burrow)return g.board[a.burrow.at]?"숨은 칸에 기물이 있어 나올 수 없습니다.":null;
@@ -367,11 +373,11 @@ function activateDrawnAbility(g:Game,s:Side,a:Ability,dead?:Piece){
   // A royal-saving card drawn from the king's death is treated as active just before the capture.
   if(dead?.color===s&&dead.kind==="k"&&a.id==="queenRule"&&g.board.some(p=>p?.color===s&&p.kind==="q")){a.active=true;a.uses=1;a.revealed=true;}
 }
-function rewardGiveMe(g:Game,owner:Side,p:Piece){
-  const state=g.giveMe?.[owner];if(!state)return;state.mark=null;const gained=giveMePieceScore(g,p),total=state.score+gained;
+function rewardGiveMe(g:Game,owner:Side,p:Piece,points=giveMePieceScore(g,p)){
+  const state=g.giveMe?.[owner];if(!state)return;state.mark=null;const gained=points,total=state.score+gained;
   const count=Math.floor(total/5);if(!count){state.score=total;record(g,owner,`줄건줘 · ${gained}점 획득 (${state.score}/5)`,true);return;}
   const drawn:(CardId)[]=[];
-  for(let i=0;i<count&&g.deck?.length;i++){const id=g.deck.shift()!;drawn.push(id);const a=ability(id);g.extraAbilities??={w:[],b:[]};g.extraAbilities[owner].push(a);activateDrawnAbility(g,owner,a,p);if(g.phase==="over")break;}
+  for(let i=0;i<count&&g.deck?.length;i++){const id=g.deck.shift()!;drawn.push(id);const a=ability(id);g.extraAbilities??={w:[],b:[]};g.extraAbilities[owner].push(a);activateDrawnAbility(g,owner,a,p);}
   state.score=total-drawn.length*5;
   record(g,owner,`줄건줘 · ${gained}점, ${drawn.length}장 획득${drawn.length?` (${drawn.map(id=>cardInfo(id).name).join(", ")})`:""}`,true);
   const endings=drawn.filter(id=>["quickDuel","fiveAhead","conscienceTest"].includes(id));
@@ -386,7 +392,13 @@ function take(g:Game,i:number,by:Side){
   if(p&&p.color!==by){
     if(p.kind!=="k")g.captured[by].push(clone(p));
     g.board[i]=null;
-    const mark=g.giveMe?.[p.color].mark;if(mark?.pieceId===p.id&&mark.reply===by)rewardGiveMe(g,p.color,p);
+    const mark=g.giveMe?.[p.color].mark;
+    if(p.kind==="k"&&hasAbility(g,p.color,"giveMe")){
+      // Kings always receive their reward. Apply drawn setup effects only after
+      // the capturing piece has landed, so a new king is not overwritten.
+      g.kingRewards??=[];g.kingRewards.push({piece:clone(p),points:giveMePieceScore(g,p)});
+      if(g.giveMe?.[p.color])g.giveMe[p.color].mark=null;
+    }else if(mark?.pieceId===p.id&&mark.reply===by)rewardGiveMe(g,p.color,p);
     return p;
   }
   g.board[i]=null;return p;
@@ -411,15 +423,33 @@ function explode(g:Game,at:number,by:Side,fallenQueens:Side[]){
   }}
 }
 function reactionOptions(g:Game,s:Side):number[]{const a=hasAbility(g,s,"reactionary");if(!a||a.active||!a.eligible)return [];return(s==="w"?[56,63]:[0,7]).filter(i=>{const p=g.board[i];return p?.color===s&&p.kind==="r"&&!p.moved&&p.id===s+square(i);});}
+function settleKingRewards(g:Game){
+  while(g.kingRewards?.length){
+    const {piece,points}=g.kingRewards.shift()!;
+    const side=piece.color,start=abilityStates(g,side).length;
+    rewardGiveMe(g,side,piece,points);
+    const cards=abilityStates(g,side).slice(start).map(a=>a.id).filter((id):id is CardId=>["noThatMove","temusanTimeStone","quickDuel"].includes(id));
+    if(cards.length){g.deathRescues??={};g.deathRescues[side]=cards;}
+  }
+  delete g.kingRewards;
+}
 function resolveRoyals(g:Game,fallenQueens:Side[]=[]){
+  settleKingRewards(g);
+  if(g.phase!=="play"||g.result)return;
   const missing=(["w","b"] as Side[]).filter(s=>fallenQueens.includes(s)||!g.board.some(p=>p?.color===s&&isRoyal(g,p)));
   const lost=missing.filter(s=>fallenQueens.includes(s)||!reactionOptions(g,s).length);
+  for(const side of ["w","b"] as Side[])if(!lost.includes(side)&&g.deathRescues)delete g.deathRescues[side];
+  for(const side of lost){
+    const cards=g.deathRescues?.[side]?.filter(id=>!abilityError({...g,turn:side,extraMove:undefined},side,id));
+    if(cards?.length){g.deathRescues![side]=cards;g.phase="rescue";g.pending={owner:side,chooser:side,options:[],royalLosses:fallenQueens};return;}
+  }
   if(lost.length===2){end(g,"draw","양쪽의 핵심 기물이 동시에 사라졌습니다.");return;}
   if(lost.length===1){end(g,other(lost[0]),`${sideName(lost[0])}의 핵심 기물이 잡혔습니다.`);return;}
   if(missing.length){const s=missing[0];g.phase="reaction";g.pending={owner:s,chooser:s,options:reactionOptions(g,s)};}
 }
 function finishTurn(g:Game,by:Side){for(const s of ["w","b"] as Side[])if(g.giveMe?.[s].mark?.reply===by)g.giveMe[s].mark=null;delete g.extraMove;g.doubleLeft=0;g.turn=other(by);}
 function afterAction(g:Game,by:Side,fallenQueens:Side[]=[],generalMoved=false){
+  settleKingRewards(g);
   if(g.phase!=="play")return;
   resolveRoyals(g,fallenQueens);if(g.result)return;
   const defender=other(by),reaction=hasAbility(g,defender,"reactionary"),mounted=hasAbility(g,defender,"mounted");
@@ -485,6 +515,15 @@ export function applyAction(previous:Game,by:Side,action:Action):Game {
   assert(previous.phase!=="over","이미 끝난 대국입니다.");
   const g=clone(previous),a=abilityState(g,by,action.card);
   if(action.type==="resign"){end(g,other(by),`${sideName(by)}이 기권했습니다.`);g.revision++;return g;}
+  if(g.phase==="rescue"){
+    assert(g.pending?.chooser===by,"상대의 구제 능력 선택을 기다려 주세요.");
+    if(action.type==="acceptDefeat"){
+      const losses=g.pending.royalLosses??[];
+      if(g.deathRescues)delete g.deathRescues[by];g.phase="play";g.pending=null;resolveRoyals(g,losses);g.revision++;return g;
+    }
+    assert(action.type==="ability"&&!abilityError(g,by,action.card),"킹 포획으로 얻은 구제 능력을 선택하세요.");
+    if(g.deathRescues)delete g.deathRescues[by];g.phase="play";g.pending=null;g.turn=by;delete g.extraMove;g.doubleLeft=0;
+  }
   if(action.type==="reaction"){
     assert(g.phase==="reaction"&&g.pending?.chooser===by,"왕룩을 선택할 차례가 아닙니다.");
     assert(validSquare(action.piece)&&g.pending.options.includes(action.piece),"선택할 수 없는 왕룩입니다.");
@@ -662,7 +701,7 @@ export function applyAction(previous:Game,by:Side,action:Action):Game {
   g.revision=previous.revision+1;return g;
 }
 export function publicGame(g:Game,viewer?:Side):Game {
-  const out=clone(g);if(out.duel)out.duel.picks={w:null,b:null};
+  const out=clone(g);delete out.kingRewards;if(out.duel)out.duel.picks={w:null,b:null};
   if(viewer){
     const opponent=other(viewer),hiddenStates=abilityStates(g,opponent).filter(a=>!(a.revealed||a.uses>0)&&!["fiveAhead","conscienceTest"].includes(a.id));
     out.onlineView={side:viewer,moves:{},targets:{}};
@@ -678,6 +717,7 @@ export function publicGame(g:Game,viewer?:Side):Game {
     out.abilities[opponent]=conceal(g.abilities[opponent]);
     if(out.extraAbilities)out.extraAbilities[opponent]=(g.extraAbilities?.[opponent]??[]).map(conceal);
     delete out.deck;if(out.giveMe)out.giveMe[opponent]={score:0,mark:null};
+    if(out.deathRescues)delete out.deathRescues[opponent];
     out.board.forEach(p=>{if(p?.color===opponent)delete p.form;});
     out.captured.w.forEach(p=>{delete p.form;});out.captured.b.forEach(p=>{delete p.form;});
     if(out.extraMove?.side===opponent)delete out.extraMove;
