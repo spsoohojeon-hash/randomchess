@@ -26,6 +26,10 @@ function successors(g:Game,side:Side,deadline=Infinity):{action:Action;game:Game
  if(g.phase==='choice'){if(g.pending?.chooser===side){add({type:'choice',choice:'w'});add({type:'choice',choice:'b'});}return list;}
  if(g.phase==='reaction'){for(const piece of g.pending?.options??[])add({type:'reaction',piece});return list;}
  if(g.phase==='duel'){for(const gesture of ['rock','paper','scissors'] as const)add({type:'duel',gesture});return list;}
+ if(g.phase==='rescue'){
+  if(g.pending?.chooser===side){for(const card of g.deathRescues?.[side]??[])add({type:'ability',card});add({type:'acceptDefeat'});}
+  return list;
+ }
  if(g.turn===side)g.board.forEach((p,from)=>{if(p?.color===side)for(const m of movesFor(g,from))promote({type:'move',from,to:m.to},p.kind==='p');});
  if(g.extraMove?.side===side)add({type:'skipExtra'});
  for(const a of abilityStates(g,side)){
@@ -47,6 +51,7 @@ export function actionLabel(a:Action,g?:Game,side?:Side):string {
  if(a.type==='duel')return {rock:'바위',paper:'보',scissors:'가위'}[a.gesture!];
  if(a.type==='skipExtra')return '추가 이동 건너뛰기';
  if(a.type==='resign')return '기권';
+ if(a.type==='acceptDefeat')return '능력 사용 없이 패배 확정';
  const name=a.type==='ability'?(a.mode==='burst'?'8발 모두 사용':a.card?cardInfo(a.card).name:'능력 사용'):g&&a.from!==undefined?kindName[g.board[a.from]?.kind??'p']:'이동';
  const revived=a.capture!==undefined&&g&&side?` · ${kindName[g.captured[side][a.capture]?.kind??'p']} 부활`:'';
  return `${name}${revived}${a.from!==undefined?' · '+square(a.from):''}${a.to!==undefined?' → '+square(a.to):''}${a.promotion?' · '+kindName[a.promotion]+' 승격':''}`;
@@ -55,7 +60,7 @@ export function actionLabel(a:Action,g?:Game,side?:Side):string {
 export type Observation={board:({color:Side;kind:Kind;moved:boolean}|null)[];turn:Side;phase:Game['phase'];doubleLeft:number;glow:Side[];winner:Side|'draw'|null;duel:null|{score:{w:number;b:number};round:number;picked:{w:boolean;b:boolean}};chooser:Side|null};
 export function observe(g:Game):Observation{return {board:g.board.map(p=>p?{color:p.color,kind:p.kind,moved:p.moved}:null),turn:g.turn,phase:g.phase,doubleLeft:g.doubleLeft,glow:g.glow??[],winner:g.result?.winner??null,duel:g.duel?{score:g.duel.score,round:g.duel.round,picked:g.duel.picked}:null,chooser:g.pending?.chooser??null};}
 export type Knowledge={viewer:Side;pool:CardId[];ownCard:CardId;observations:{position:Observation;step?:Step}[]};
-export type AnalysisRequest={id:number;difficulty:Difficulty;mode:EvaluationMode;viewer:Side;actions:Action[];knowledge?:Knowledge;game?:Game;purpose:'analysis'|'move'};
+export type AnalysisRequest={id:number;difficulty:Difficulty;mode:EvaluationMode;viewer:Side;actions:Action[];knowledge?:Knowledge;game?:Game;emergency?:Side;purpose:'analysis'|'move'};
 export function makeRequest(frames:Frame[],viewer:Side,pool:CardPool,mode:EvaluationMode,difficulty:Difficulty,purpose:AnalysisRequest['purpose'],id:number):AnalysisRequest {
  const current=frames.at(-1)!.game;
  // Both modes conceal the other player's simultaneous gesture, even from an all-information AI.
@@ -63,6 +68,9 @@ export function makeRequest(frames:Frame[],viewer:Side,pool:CardPool,mode:Evalua
   const game=structuredClone(current);if(game.duel)game.duel.picks[other(viewer)]=null;
   return {id,difficulty,mode,viewer,purpose,game,actions:legalActions(current,actor(current,viewer))};
  }
+ // The chooser knows its own new cards. Do not require reconstructing the
+ // opponent's secret deck to offer an available last-chance action.
+ if(current.phase==='rescue'&&current.pending?.chooser===viewer)return {id,difficulty,mode,viewer,purpose,emergency:viewer,actions:legalActions(current,viewer)};
  const ownCard=frames[0].game.abilities[viewer].id as CardId;
  const ids=pool==='all'?CARDS.map(c=>c.id):pool;
  const knowledge:Knowledge={viewer,ownCard,pool:ids.length>1?ids.filter(c=>c!==ownCard):ids,observations:frames.map(f=>{
@@ -197,6 +205,11 @@ export function winEstimate(score:number):{w:number;draw:number;b:number}{
  const w=Math.round((100-draw)/(1+Math.exp(-s/2.5)));return {w,draw,b:100-w-draw};
 }
 export function analyze(request:AnalysisRequest):AnalysisResult {
+ if(request.emergency===request.viewer){
+  const priority=['noThatMove','temusanTimeStone','quickDuel'];
+  const action=priority.flatMap(card=>request.actions.filter(a=>a.type==='ability'&&a.card===card))[0]??request.actions.find(a=>a.type==='acceptDefeat')??null;
+  return {id:request.id,action,score:null,wdl:null,uncertainty:50,depth:0,nodes:0,candidates:0,incomplete:true,line:action?[{side:request.viewer,action}]:[]};
+ }
  const cfg=settings[request.difficulty],start=performance.now();
  const inferred=request.mode==='theory'?{worlds:[request.game!],incomplete:false}:inferWorlds(request.knowledge!,start+2500);
  const all=inferred.worlds;
