@@ -1,5 +1,5 @@
-import {CARDS,createGame,applyAction,movesFor,abilityTargets,abilityError,generalAssignment,other,isRoyal,kindName,square,abilityStates,cardInfo} from './game.ts';
-import type {Game,Side,CardId,CardPool,Action,Kind} from './game.ts';
+import {CARDS,createGame,applyAction,movesFor,abilityTargets,abilityError,generalAssignment,other,isRoyal,kindName,square,abilityStates,cardInfo,hasAbility} from './game.ts';
+import type {Game,Side,CardId,CardPool,Action,Kind,Piece} from './game.ts';
 export type EvaluationMode='practical'|'theory';
 export type Difficulty='easy'|'normal'|'hard';
 export type Frame={game:Game;by?:Side;action?:Action};
@@ -13,9 +13,13 @@ export function actor(g:Game,preferred:Side=g.turn):Side {
 }
 // Enumerate actions through the same validator used by the actual game, including free abilities.
 export function legalActions(g:Game,side:Side=actor(g)):Action[]{
+ return successors(g,side).map(c=>c.action);
+}
+// Validate and apply once; search reuses the resulting position.
+function successors(g:Game,side:Side,deadline=Infinity):{action:Action;game:Game}[]{
  if(g.phase==='over')return [];
- const list:Action[]=[];
- const add=(a:Action)=>{try{applyAction(g,side,a);list.push(a);}catch{}};
+ const list:{action:Action;game:Game}[]=[];
+ const add=(action:Action)=>{if(performance.now()>deadline)return;try{list.push({action,game:applyAction(g,side,action)});}catch{}};
  const promote=(a:Action,pawn:boolean)=>{
   if(pawn&&a.to!==undefined&&[0,7].includes(Math.floor(a.to/8)))for(const promotion of ['q','r','b','n'] as Kind[])add({...a,promotion});else add(a);
  };
@@ -92,58 +96,99 @@ export function inferWorlds(k:Knowledge,deadline=Infinity):{worlds:Game[];incomp
  }
  return {worlds,incomplete};
 }
+// Board strength is separate from Give Me's reward points.
+function pieceStrength(g:Game,p:Piece):number {
+ const queen=hasAbility(g,p.color,'queenRule')?.active;
+ let v=queen&&p.kind==='q'?2:queen&&p.kind==='k'?9:value[p.kind];
+ if(p.kind==='r'&&hasAbility(g,p.color,'versatile'))v=6;
+ if(p.form)v+=3.2;
+ const power=hasAbility(g,p.color,'kingReturn')?.power;
+ if(p.kind==='k'&&power&&power.left>0)v+=Math.max(0,(power.mode==='bn'?6:power.mode==='q'?9:12)-v)*Math.min(1,power.left/5);
+ if(hasAbility(g,p.color,'wildHorse')?.active&&(p.kind==='n'||p.form||p.kind==='r'&&hasAbility(g,p.color,'versatile')||p.kind==='k'&&power?.mode!=='q'&&power))v+=.6;
+ const general=hasAbility(g,p.color,'general')?.general;
+ if(general?.id===p.id)v+=Math.min(3,general.kills*.5)+(general.knightId?1:0)+(general.bishopId?1:0);
+ return v;
+}
+// A preference, not a new draw rule. Ability progress distinguishes otherwise
+// identical boards, so repeated Equality activations remain valuable.
+function positionKey(g:Game|Game['undo'][number]['before']):string {
+ return JSON.stringify([g.board,g.turn,g.phase,g.abilities,g.extraAbilities,g.extraMove,g.doubleLeft,g.ban,g.ep,g.giveMe]);
+}
 export function evaluate(g:Game):number {
  if(g.result)return g.result.winner==='draw'?0:g.result.winner==='w'?10000:-10000;
+ const attacks={w:new Set<number>(),b:new Set<number>()};
+ const mobility=new Map<number,number>();
+ g.board.forEach((p,i)=>{if(p){const moves=movesFor(g,i,true);mobility.set(i,moves.length);for(const m of moves)attacks[p.color].add(m.to);}});
  let score=0;
  for(const s of ['w','b'] as Side[]){let v=0;
   for(let i=0;i<64;i++){const p=g.board[i];if(!p||p.color!==s)continue;
    const advancement=s==='w'?6-Math.floor(i/8):Math.floor(i/8)-1;
-   v+=value[p.kind]+(p.kind==='p'?Math.max(0,advancement)*.1: p.kind!=='k'?(3.5-Math.abs(i%8-3.5)+3.5-Math.abs(Math.floor(i/8)-3.5))*.025:0);
-   if(p.form)v+=3;if(isRoyal(g,p))v+=.01;
-   // Movement-changing abilities have value even before they take a piece.
-   v+=movesFor(g,i).length*.012;
+   const strength=pieceStrength(g,p);
+   v+=strength+(p.kind==='p'?Math.max(0,advancement)**2*.035:p.kind!=='k'?(3.5-Math.abs(i%8-3.5)+3.5-Math.abs(Math.floor(i/8)-3.5))*.035:0);
+   v+=(mobility.get(i)??0)*.018;
+   if(isRoyal(g,p)){
+    // Check is legal, but allowing the opponent to capture a royal is expensive.
+    if(attacks[other(s)].has(i))v-=actor(g)===other(s)?32:7;
+   }else if(attacks[other(s)].has(i))v-=strength*(actor(g)===other(s)?.24:.08);
   }
   for(const a of abilityStates(g,s)){
-   if(a.burrow)v+=value[a.burrow.piece.kind]*.7;
-   v+=(a.ammo??0)*.22+(a.power?.left??0)*.055+(a.general?.kills??0)*.28;
-   if(a.id==='equality')v+=a.castleCount*.3+(a.castleCount>=6?2:0);
-   if(a.id==='reactionary'&&a.active)v-=a.threats*.8;
-   if(a.id==='mounted'&&s==='b'&&a.fusion)v-=a.threats*.5;
+   if(a.burrow)v+=pieceStrength(g,a.burrow.piece)*(g.board[a.burrow.at]?.color===other(s)?.45:.85);
+   v+=(a.ammo??0)*.3+(a.ammo===8?1.2:0);
+   if(a.id==='equality'){
+    v+=a.castleCount*.7+a.castleCount**2*.12;
+    const ready=abilityTargets(g,s,undefined,'equality').length>0;
+    if(ready)v+=.5+a.castleCount*.18;
+   }
+   if(a.id==='reactionary')v+=a.active?-a.threats*2:a.eligible?.65:0;
+   if(a.id==='mounted'&&s==='b'&&a.fusion)v-=a.threats*1.5;
+   if(a.id==='giveMe')v+=Math.min(4,g.giveMe?.[s].score??0)*.18;
   }
   score+=s==='w'?v:-v;
  }
+ if(g.phase==='play'&&g.undo.some(h=>positionKey(h.before)===positionKey(g)))score+=g.turn==='w'?.9:-.9;
  return score;
 }
 type Candidate={action:Action;game:Game;score:number};
-// Keep ability branches in the beam even when activation has no immediate material gain.
+// Each distinct stacked ability gets a candidate, not just the first two cards.
 function beamCandidates<T extends {action:Action}>(ranked:T[],width:number):T[]{
- const selected=ranked.slice(0,width);
- for(const c of ranked.filter(c=>c.action.type==='ability').slice(0,2))if(!selected.includes(c))selected.push(c);
+ const selected=ranked.slice(0,width),cards=new Set<string>();
+ for(const c of ranked)if(c.action.type==='ability'){
+  const id=c.action.card??'primary';
+  if(!cards.has(id)){cards.add(id);if(!selected.includes(c))selected.push(c);}
+ }
  return selected;
 }
 function remainingDepth(before:Game,after:Game,side:Side,depth:number,chain:number):number{
- // A free activation or first half of a double move must not consume a whole search turn.
- return after.phase==='play'&&actor(after)===side&&before.phase==='play'&&chain<3?depth:depth-1;
+ return after.phase==='play'&&actor(after)===side&&before.phase==='play'&&chain<4?depth:depth-1;
 }
 export type AnalysisResult={id:number;action:Action|null;score:number|null;wdl:{w:number;draw:number;b:number}|null;uncertainty:number;depth:number;nodes:number;candidates:number;incomplete:boolean;line:Step[];unavailable?:boolean};
-const settings={easy:{depth:1,nodes:240,beam:5,worlds:4},normal:{depth:2,nodes:750,beam:7,worlds:6},hard:{depth:3,nodes:1800,beam:9,worlds:8}};
-function search(g:Game,depth:number,budget:{nodes:number;limit:number;deadline:number},beam:number,chain=0):{score:number;line:Step[];depth:number}{
- if(g.result||depth===0||budget.nodes>=budget.limit||performance.now()>budget.deadline)return {score:evaluate(g),line:[],depth:0};
- // Simultaneous moves are not treated as an opponent's visible, exploitable commitment.
- if(g.phase==='duel')return {score:0,line:[],depth:0};
+const settings={easy:{depth:1,nodes:1500,beam:5,worlds:4},normal:{depth:2,nodes:9000,beam:7,worlds:6},hard:{depth:3,nodes:24000,beam:10,worlds:8}};
+type Budget={nodes:number;limit:number;deadline:number};
+type SearchResult={score:number;line:Step[];depth:number;complete:boolean};
+function search(g:Game,depth:number,budget:Budget,beam:number,chain=0,alpha=-Infinity,beta=Infinity,quiet=1):SearchResult{
+ const stand=evaluate(g),leaf={score:stand,line:[] as Step[],depth:0,complete:true};
+ if(g.result||g.phase==='duel'||depth<=0&&quiet<=0)return g.phase==='duel'?{...leaf,score:0}:leaf;
+ if(budget.nodes>=budget.limit||performance.now()>budget.deadline)return {...leaf,complete:false};
  const side=actor(g),sign=side==='w'?1:-1;
- const candidates:Candidate[]=[];
- for(const action of legalActions(g,side)){
-  if(performance.now()>budget.deadline)break;
-  budget.nodes++;
-  const next=applyAction(g,side,action);candidates.push({action,game:next,score:evaluate(next)});
- }
+ const children=successors(g,side,budget.deadline);budget.nodes+=children.length;
+ if(performance.now()>budget.deadline)return {...leaf,complete:false};
+ const candidates:Candidate[]=children.map(c=>({...c,score:evaluate(c.game)}));
+ // All immediate wins are checked before beam pruning, including hidden wins.
+ const win=candidates.find(c=>c.game.result?.winner===side);
+ if(win)return {score:win.score,line:[{side,action:win.action}],depth:1,complete:true};
  candidates.sort((a,b)=>sign*(b.score-a.score));
- let best={score:evaluate(g),line:[] as Step[],depth:0},first=true;
- for(const c of beamCandidates(candidates,beam)){
+ const tactical=depth<=0;
+ const selected=tactical?candidates.filter(c=>c.game.result||c.action.type==='move'&&!!g.board[c.action.to!]||c.action.type==='ability'&&Math.abs(c.score-stand)>1.5).slice(0,4):beamCandidates(candidates,beam);
+ let best={...leaf},first=!tactical;
+ for(const c of selected){
   const remaining=remainingDepth(g,c.game,side,depth,chain);
-  const child=search(c.game,remaining,budget,beam,remaining===depth?chain+1:0);
-  if(first||sign*child.score>sign*best.score){first=false;best={score:child.score,line:[{side,action:c.action},...child.line],depth:1+child.depth};}
+  const child=search(c.game,remaining,budget,beam,remaining===depth?chain+1:0,alpha,beta,tactical?quiet-1:quiet);
+  if(!child.complete)return {...best,complete:false};
+  // Prefer shorter forced wins without changing nonterminal material scores.
+  const score=Math.abs(child.score)>9000?child.score-Math.sign(child.score)*.01:child.score;
+  if(first||sign*score>sign*best.score){first=false;best={score,line:[{side,action:c.action},...child.line],depth:1+child.depth,complete:true};}
+  if(sign===1)alpha=Math.max(alpha,best.score);else beta=Math.min(beta,best.score);
+  if(alpha>=beta)break;
  }
  return best;
 }
@@ -176,17 +221,27 @@ export function analyze(request:AnalysisRequest):AnalysisResult {
  }
  ranked.sort((a,b)=>sign*(b.score-a.score));
  const finalists=beamCandidates(ranked,cfg.beam);
- for(const candidate of finalists){
-  let sum=0,depth=Infinity,lo=Infinity,hi=-Infinity;
-  for(const g of worlds){
-   const next=applyAction(g,side,candidate.action);
-   const remaining=remainingDepth(g,next,side,cfg.depth,0);
-   const budget={nodes:0,limit:Math.max(80,Math.floor(cfg.nodes/(Math.max(1,finalists.length)*worlds.length))),deadline};
-   const result=search(next,remaining,budget,cfg.beam,remaining===cfg.depth?1:0);
-   nodes+=budget.nodes;sum+=result.score;lo=Math.min(lo,result.score);hi=Math.max(hi,result.score);depth=Math.min(depth,1+result.depth);
-   if(worlds.length===1)candidate.line=[{side,action:candidate.action},...result.line];
+ let searchedDepth=0,truncated=false;
+ for(let iteration=1;iteration<=cfg.depth;iteration++){
+  const updates:typeof ranked=[];let completed=true;
+  for(const candidate of finalists){
+   let sum=0,depth=Infinity,lo=Infinity,hi=-Infinity,line=candidate.line;
+   for(const g of worlds){
+    const next=applyAction(g,side,candidate.action);
+    const remaining=remainingDepth(g,next,side,iteration,0);
+    const budget={nodes:0,limit:Math.max(400,Math.floor(cfg.nodes/(Math.max(1,finalists.length)*worlds.length))),deadline};
+    const result=search(next,remaining,budget,cfg.beam,remaining===iteration?1:0,-Infinity,Infinity,iteration>1?1:0);
+    nodes+=budget.nodes;
+    if(!result.complete){completed=false;break;}
+    sum+=result.score;lo=Math.min(lo,result.score);hi=Math.max(hi,result.score);depth=Math.min(depth,1+result.depth);
+    if(worlds.length===1)line=[{side,action:candidate.action},...result.line];
+   }
+   if(!completed)break;
+   updates.push({...candidate,score:sum/worlds.length,spread:hi-lo,depth,line});
   }
-  candidate.score=sum/worlds.length;candidate.spread=hi-lo;candidate.depth=depth;
+  // Never compare a deeply searched early candidate with an unsearched late one.
+  if(!completed){truncated=true;break;}
+  updates.forEach((u,i)=>Object.assign(finalists[i],u));searchedDepth=iteration;
  }
  finalists.sort((a,b)=>sign*(b.score-a.score));
  const best=finalists[0];const score=best?.score??worlds.reduce((n,g)=>n+evaluate(g),0)/worlds.length;
@@ -199,5 +254,5 @@ export function analyze(request:AnalysisRequest):AnalysisResult {
    wdl={w,draw,b:100-w-draw};
   }
  }
- return {...empty,action:best?.action??null,score,wdl,uncertainty:Math.min(50,Math.round((best?.spread??0)*3+(all.length>1?12:0)+(inferred.incomplete?15:0))),depth:best?.depth??0,nodes,candidates:all.length,incomplete:inferred.incomplete||worlds.length<all.length,line:best?.line??[]};
+ return {...empty,action:best?.action??null,score,wdl,uncertainty:Math.min(50,Math.round((best?.spread??0)*3+(all.length>1?12:0)+(inferred.incomplete?15:0))),depth:searchedDepth?best?.depth??0:1,nodes,candidates:all.length,incomplete:truncated||inferred.incomplete||worlds.length<all.length,line:best?.line??[]};
 }
