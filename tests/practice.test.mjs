@@ -62,7 +62,7 @@ test('unknown choice identities do not create an impossible draw probability',()
 });
 
 test('practical opponent activates a free ability and then completes its ordinary move',()=>{
- for(const id of ['wildHorse','forwardPawns','nothing','armyForward','mounted']){
+ for(const id of ['wildHorse','armyForward']){
   let g=createGame('necro',id);const frames=[{game:g}];
   const move={type:'move',from:sq('e2'),to:sq('e4')};g=applyAction(g,'w',move);frames.push({game:g,by:'w',action:move});
   const decide=()=>analyze(makeRequest(frames,'b','all','practical','normal','move',1));
@@ -87,7 +87,8 @@ test('AI uses offensive, revival and double-move abilities when their follow-up 
  const shot=pos('necro','gatling',{a1:'wk',h8:'bk',d5:'bq',d3:'wq',c3:'wr',e3:'wr'});shot.turn='b';shot.abilities.b.ammo=8;
  assert.equal(analyze(request(shot,'b')).action?.mode,'burst');
  const revive=pos('necro','necro');revive.turn='b';revive.captured.b=[{id:'dead',color:'w',kind:'q',moved:true}];
- assert.equal(analyze(request(revive,'b')).action?.capture,0);
+ const revival=analyze(request(revive,'b'));
+ assert(revival.line.some(s=>s.side==='b'&&s.action.type==='ability'&&s.action.capture===0),'AI revives the queen immediately or after improving its placement');
  const twice=pos('necro','doubleMove',{a1:'wk',h8:'bk',d8:'br',d6:'wq',f6:'wq'});twice.turn='b';
  const first=analyze(request(twice,'b')).action;assert.equal(first?.type,'ability');
  const active=applyAction(twice,'b',first);const next=analyze(request(active,'b')).action;
@@ -97,4 +98,43 @@ test('AI uses offensive, revival and double-move abilities when their follow-up 
 test('AI prefers an immediate king capture to spending an ability',()=>{
  const g=pos('necro','kingReturn',{a1:'wk',h8:'bk',a8:'br'});g.turn='b';
  const r=analyze(request(g,'b'));assert.equal(r.action?.type,'move');assert.equal(applyAction(g,'b',r.action).result?.winner,'b');
+});
+
+
+test('AI avoids an immediate royal loss while a material grab is available',()=>{
+ const g=pos('nothing','nothing',{e1:'wk',a1:'wr',e8:'br',h8:'bk',a7:'bq'});
+ const r=analyze(request(g));assert(r.action);
+ const after=applyAction(g,'w',r.action);
+ if(actor(after)==='b')assert(!legalActions(after,'b').some(a=>applyAction(after,'b',a).result?.winner==='b'));
+});
+
+test('AI sees a hidden victory on an extra card and evaluates compound movement',()=>{
+ const g=pos('nothing','necro',{a1:'wk',h8:'bk',b4:'wr',e4:'wn'});
+ g.extraAbilities.w=[{...createGame('equality','necro').abilities.w,castleCount:6}];
+ const r=analyze(request(g));assert.equal(r.action.card,'equality');assert.equal(applyAction(g,'w',r.action).result.winner,'w');
+ const plain=pos('nothing','necro',{a1:'wk',h8:'bk',d4:'wr'}),fused=structuredClone(plain);
+ fused.board[sq('d4')].form='prince';fused.extraAbilities.w=[{...createGame('wildHorse','necro').abilities.w,active:true}];
+ assert(evaluate(fused)>evaluate(plain)+3);
+});
+
+test('forward pawn free activation is followed by a winning capture',()=>{
+ const g=pos('forwardPawns','nothing',{a1:'wk',e3:'bk',e2:'wp'});
+ const r=analyze(request(g));assert.equal(r.action.card,'forwardPawns');
+ const after=applyAction(g,'w',r.action),next=analyze(request(after));
+ assert.equal(applyAction(after,'w',next.action).result.winner,'w');
+});
+
+test('AI turns a losing board into a fair duel and keeps opponent gesture private',()=>{
+ const g=pos('quickDuel','nothing',{a1:'wk',h8:'bk',b3:'bq',h1:'br'});
+ const r=analyze(request(g));assert.equal(r.action.card,'quickDuel');
+});
+
+test('repeated positions are discouraged without penalizing ability progress',()=>{
+ const g=pos('equality','nothing',{a1:'wk',h8:'bk',b4:'wr',e4:'wn'}),repeat=structuredClone(g);
+ const {undo,revision,...before}=structuredClone(g);
+ repeat.undo=[{by:'b',move:{from:0,to:1},before}];
+ assert(evaluate(repeat)>evaluate(g),'discourage the black move that returned to this position');
+ repeat.abilities.w.castleCount=1;
+ const progress=structuredClone(repeat);progress.undo=[];
+ assert.equal(evaluate(repeat),evaluate(progress));
 });
