@@ -15,7 +15,10 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate:local": "wrangler d1 migrations apply DB --local --config wrangler.jsonc --persist-to .wrangler/state",
     "db:migrate:remote": "wrangler d1 migrations apply DB --remote --config wrangler.jsonc",
-    "test": "node --test tests/*.test.mjs"
+    "test": "node --test tests/*.test.mjs",
+    "research:setup": "node scripts/research/setup.mjs",
+    "research:run": "node scripts/research/collector.mjs",
+    "research:export": "node scripts/research/export.mjs"
   },
   "dependencies": {
     "@base-ui/react": "^1.7.0",
