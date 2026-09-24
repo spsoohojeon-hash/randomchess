@@ -46,3 +46,10 @@ next-env.d.ts
 /work/
 
 *.tsbuildinfo
+
+# Private research data must never be committed
+/research-data/
+*.sqlite
+*.sqlite-wal
+*.sqlite-shm
+training*.jsonl
