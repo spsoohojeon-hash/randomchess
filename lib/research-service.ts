@@ -21,7 +21,7 @@ async function read(req:Request,max=350_000){if(Number(req.headers.get('Content-
 const cookie=(value:string,age:number)=>`__Host-research=${value}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${age}`;
 export async function researchApi(env:ResearchEnv,req:Request,path:string):Promise<Response>{
  const password=env.RESEARCH_PASSWORD??'',token=env.RESEARCH_RUNNER_TOKEN??'';
- if(password.length<16||token.length<32)return json({error:'관리자 비밀번호와 수집기 비밀키 설정이 필요합니다.',setup:true},503);
+ if(password.length<8||token.length<32)return json({error:'관리자 비밀번호와 수집기 비밀키 설정이 필요합니다.',setup:true},503);
  const url=new URL(req.url),origin=req.headers.get('Origin');
  if(req.method!=='GET'&&origin&&origin!==url.origin)return json({error:'허용되지 않은 출처입니다.'},403);
  try{

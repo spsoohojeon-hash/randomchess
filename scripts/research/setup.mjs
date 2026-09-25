@@ -19,6 +19,12 @@ try{
  const worker=await prompt.question('Cloudflare Worker 이름 [randomchess]: ')||'randomchess';
  if(!/^[a-zA-Z0-9_-]+$/.test(worker))throw Error('Invalid worker name');
  const config=previous??{token:randomBytes(32).toString('hex'),password:randomBytes(18).toString('base64url'),lanes:2,trainingEveryGames:100,trainingEpochs:5,trainingMaxExamples:12000};
+ if(process.env.RESEARCH_PASSWORD_FILE){
+  const selected=readFileSync(process.env.RESEARCH_PASSWORD_FILE,'utf8').replace(/\r?\n$/,'');
+  if(selected.length<8)throw Error('연구실 비밀번호는 8자 이상이어야 합니다.');
+  config.password=selected;
+ }
+ if(typeof config.password!=='string'||config.password.length<8||typeof config.token!=='string'||config.token.length<32)throw Error('저장된 연구실 인증 설정이 올바르지 않습니다.');
  config.url=new URL(url).origin;
  writeFileSync(file,JSON.stringify(config,null,2),{mode:0o600});
  const root=fileURLToPath(new URL('../../',import.meta.url));
@@ -32,7 +38,7 @@ try{
  if(result.status!==0){console.error('비밀값 등록을 완료하지 못했습니다. Cloudflare 로그인 후 이 설정 명령을 다시 실행하세요. 생성된 설정은 비공개 폴더에 보관되어 있습니다.');process.exitCode=1;}
  else{
   console.log('\n연구실: '+config.url+'/research');
-  console.log('비밀번호: '+config.password);
+  console.log('비밀번호는 비공개 설정 파일에 저장되었습니다: '+file);
   console.log('수집기: pnpm research:run');
   console.log('연구실에 로그인한 다음 “수집 시작”을 누르세요.');
  }
