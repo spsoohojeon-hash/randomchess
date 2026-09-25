@@ -1,7 +1,8 @@
+import {predict,type Network} from './research-network.ts';
 import {CARDS,createGame,publicGame,abilityStates,other} from './game.ts';
 import type {Game,Core,Side,Action,CardId} from './game.ts';
 import {legalActions,analyze} from './practice-ai.ts';
-export const POLICY_VERSION='private-sampled-hard-v1';
+export const POLICY_VERSION='private-sampled-hard-v2-learning';
 export type PolicyInput={viewer:Side;view:Game;actions:Action[]};
 // This is the sole referee -> player boundary. Historical states are separately
 // redacted; a rewind never hands either player an opponent's private snapshot.
@@ -48,7 +49,9 @@ export function sampleWorlds(input:PolicyInput,seed:number):Game[]{
  }
  return worlds;
 }
-export function decide(input:PolicyInput,seed:number){
+export function decide(input:PolicyInput,seed:number,network?:Network){
  const view=input.view,emergency=view.phase==='rescue'&&view.pending?.chooser===input.viewer?input.viewer:undefined;
- return analyze({id:view.revision,difficulty:'hard',mode:'practical',viewer:input.viewer,purpose:'move',actions:input.actions,emergency,belief:{worlds:sampleWorlds(input,seed),incomplete:true}});
+ const prediction=network?predict(network,input):undefined;
+ const prior=prediction?Object.fromEntries(input.actions.map((a,i)=>[JSON.stringify(a),Math.max(-.4,Math.min(.4,.2*Math.log(Math.max(1e-9,prediction.probabilities[i])*input.actions.length)))])):undefined;
+ return {...analyze({id:view.revision,difficulty:'hard',mode:'practical',viewer:input.viewer,purpose:'move',actions:input.actions,emergency,prior,belief:{worlds:sampleWorlds(input,seed),incomplete:true}}),learnedValue:prediction?.value??null};
 }
