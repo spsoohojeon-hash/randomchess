@@ -1,6 +1,6 @@
 # 개인 AI 연구실
 
-주소: `/research`. 게임 화면에는 링크를 추가하지 않습니다. 주소가 알려져도 비밀번호가 없으면 모든 기록/통계/내보내기 API가 거부됩니다. 비밀번호 16자 이상과 수집기 토큰 32자 이상이 Cloudflare Secrets에 둘 다 있어야 열립니다. 초기 상태는 수집 중지입니다.
+주소: `/research`. 게임 화면에는 링크를 추가하지 않습니다. 주소가 알려져도 비밀번호가 없으면 모든 기록/통계/내보내기 API가 거부됩니다. 비밀번호 8자 이상과 수집기 토큰 32자 이상이 Cloudflare Secrets에 둘 다 있어야 열립니다. 초기 상태는 수집 중지입니다.
 
 ## 최초 설정
 
@@ -12,7 +12,7 @@ pnpm exec wrangler login
 pnpm research:setup
 ```
 
-setup은 최신 코드를 빌드하고 선택한 Worker(기본 `randomchess`)에 배포한 다음, 비밀번호와 별도 수집기 토큰을 무작위 생성해 Cloudflare의 `RESEARCH_PASSWORD`, `RESEARCH_RUNNER_TOKEN` 비밀값으로 등록합니다. GitHub 자동 배포가 연결되지 않아도 이 명령으로 배포할 수 있습니다. 값은 커밋하지 않습니다. 사용자 홈의 `.randomchess-research/config.json`만 소유자 전용 권한으로 보관합니다. 로그인 비밀번호가 이 개인 터미널에 한 번 표시됩니다. 설정이 실패하면 Cloudflare 로그인 후 재실행합니다. 기존 설정을 재사용하므로 실패할 때마다 비밀번호가 바뀌지 않습니다. 기존 체크아웃에서는 먼저 `git pull --ff-only`로 최신 코드를 가져오세요.
+setup은 최신 코드를 빌드하고 선택한 Worker(기본 `randomchess`)에 배포한 다음, 비밀번호와 별도 수집기 토큰을 무작위 생성해 Cloudflare의 `RESEARCH_PASSWORD`, `RESEARCH_RUNNER_TOKEN` 비밀값으로 등록합니다. GitHub 자동 배포가 연결되지 않아도 이 명령으로 배포할 수 있습니다. 값은 커밋하지 않습니다. 사용자 홈의 `.randomchess-research/config.json`만 소유자 전용 권한으로 보관합니다. 비밀번호는 터미널에 출력하지 않고 비공개 설정 파일에 보관합니다. 직접 고른 비밀번호를 사용하려면 저장소 밖의 소유자 전용 파일에 넣고 `RESEARCH_PASSWORD_FILE=/private/path/password.txt pnpm research:setup`으로 실행하세요. 파일 마지막의 줄바꿈 하나만 제거하며 나머지 문자는 그대로 사용합니다. 이 옵션은 재실행 때 비밀번호를 변경하는 데도 사용할 수 있습니다. 설정이 실패하면 Cloudflare 로그인 후 재실행합니다. 기존 설정을 재사용하므로 실패할 때마다 비밀번호가 바뀌지 않습니다. 기존 체크아웃에서는 먼저 `git pull --ff-only`로 최신 코드를 가져오세요.
 
 ```sh
 pnpm research:run

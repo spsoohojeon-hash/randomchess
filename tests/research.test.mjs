@@ -42,6 +42,14 @@ test('password guessing is rate limited',async()=>{
  const e=environment();for(let i=0;i<10;i++)assert.equal((await call(e,'login',{body:{password:'wrong'}})).status,401);
  assert.equal((await call(e,'login',{body:{password}})).status,429);e.DB.sql.close();
 });
+test('owner-selected short passwords authenticate exactly while missing or too-short secrets fail closed',async()=>{
+ const e=environment();e.RESEARCH_PASSWORD='demo12~ab';
+ assert.equal((await call(e,'login',{body:{password:'demo12~ab'}})).status,200);
+ assert.equal((await call(e,'login',{body:{password:'demo12~ab '}})).status,401);
+ assert.equal((await call({...e,RESEARCH_PASSWORD:'1234567'},'stats')).status,503);
+ assert.equal((await call({...e,RESEARCH_RUNNER_TOKEN:'short'},'stats')).status,503);
+ e.DB.sql.close();
+});
 test('runner uploads are durable, ordered, idempotent and inaccessible with owner cookie',async()=>{
  const e=environment(),cookie=await login(e);
  assert.equal((await call(e,'runner/event',{cookie,body:event()})).status,401);
