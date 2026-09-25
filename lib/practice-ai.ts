@@ -60,7 +60,7 @@ export function actionLabel(a:Action,g?:Game,side?:Side):string {
 export type Observation={board:({color:Side;kind:Kind;moved:boolean}|null)[];turn:Side;phase:Game['phase'];doubleLeft:number;glow:Side[];winner:Side|'draw'|null;duel:null|{score:{w:number;b:number};round:number;picked:{w:boolean;b:boolean}};chooser:Side|null};
 export function observe(g:Game):Observation{return {board:g.board.map(p=>p?{color:p.color,kind:p.kind,moved:p.moved}:null),turn:g.turn,phase:g.phase,doubleLeft:g.doubleLeft,glow:g.glow??[],winner:g.result?.winner??null,duel:g.duel?{score:g.duel.score,round:g.duel.round,picked:g.duel.picked}:null,chooser:g.pending?.chooser??null};}
 export type Knowledge={viewer:Side;pool:CardId[];ownCard:CardId;observations:{position:Observation;step?:Step}[]};
-export type AnalysisRequest={id:number;difficulty:Difficulty;mode:EvaluationMode;viewer:Side;actions:Action[];knowledge?:Knowledge;game?:Game;belief?:{worlds:Game[];incomplete:boolean};emergency?:Side;purpose:'analysis'|'move'};
+export type AnalysisRequest={id:number;difficulty:Difficulty;mode:EvaluationMode;viewer:Side;actions:Action[];knowledge?:Knowledge;game?:Game;belief?:{worlds:Game[];incomplete:boolean};prior?:Record<string,number>;emergency?:Side;purpose:'analysis'|'move'};
 export function makeRequest(frames:Frame[],viewer:Side,pool:CardPool,mode:EvaluationMode,difficulty:Difficulty,purpose:AnalysisRequest['purpose'],id:number):AnalysisRequest {
  const current=frames.at(-1)!.game;
  // Both modes conceal the other player's simultaneous gesture, even from an all-information AI.
@@ -230,7 +230,7 @@ export function analyze(request:AnalysisRequest):AnalysisResult {
  for(const action of roots){
   let sum=0,lo=Infinity,hi=-Infinity,valid=0;
   for(const g of worlds){try{const next=applyAction(g,side,action),v=evaluate(next);sum+=v;lo=Math.min(lo,v);hi=Math.max(hi,v);valid++;}catch{}}
-  if(valid===worlds.length)ranked.push({action,score:sum/valid,spread:hi-lo,line:[{side,action}],depth:1});
+  if(valid===worlds.length)ranked.push({action,score:sum/valid+sign*(request.prior?.[actionKey(action)]??0),spread:hi-lo,line:[{side,action}],depth:1});
  }
  ranked.sort((a,b)=>sign*(b.score-a.score));
  const finalists=beamCandidates(ranked,cfg.beam);
@@ -250,7 +250,7 @@ export function analyze(request:AnalysisRequest):AnalysisResult {
     if(worlds.length===1)line=[{side,action:candidate.action},...result.line];
    }
    if(!completed)break;
-   updates.push({...candidate,score:sum/worlds.length,spread:hi-lo,depth,line});
+   updates.push({...candidate,score:sum/worlds.length+sign*(request.prior?.[actionKey(candidate.action)]??0),spread:hi-lo,depth,line});
   }
   // Never compare a deeply searched early candidate with an unsearched late one.
   if(!completed){truncated=true;break;}

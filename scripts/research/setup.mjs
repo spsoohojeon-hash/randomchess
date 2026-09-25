@@ -18,11 +18,16 @@ try{
  if(!/^https:\/\//.test(url))throw Error('HTTPS address required');
  const worker=await prompt.question('Cloudflare Worker 이름 [randomchess]: ')||'randomchess';
  if(!/^[a-zA-Z0-9_-]+$/.test(worker))throw Error('Invalid worker name');
- const config=previous??{token:randomBytes(32).toString('hex'),password:randomBytes(18).toString('base64url'),lanes:2};
+ const config=previous??{token:randomBytes(32).toString('hex'),password:randomBytes(18).toString('base64url'),lanes:2,trainingEveryGames:100,trainingEpochs:5,trainingMaxExamples:12000};
  config.url=new URL(url).origin;
  writeFileSync(file,JSON.stringify(config,null,2),{mode:0o600});
- console.log('Cloudflare에 두 비밀값을 등록합니다. 인증이 필요하면 먼저 pnpm exec wrangler login 을 실행하세요.');
  const root=fileURLToPath(new URL('../../',import.meta.url));
+ console.log('최신 사이트를 빌드하고 선택한 Cloudflare Worker에 배포합니다.');
+ const build=spawnSync('pnpm',['run','build'],{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']});
+ if(build.status!==0)throw Error('사이트 빌드에 실패했습니다. pnpm build 결과를 확인한 뒤 다시 실행하세요.');
+ const deploy=spawnSync('pnpm',['exec','wrangler','deploy','--config','dist/server/wrangler.json','--name',worker],{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']});
+ if(deploy.status!==0)throw Error('Cloudflare 배포에 실패했습니다. pnpm exec wrangler login 후 다시 실행하세요.');
+ console.log('Cloudflare에 두 비밀값을 등록합니다.');
  const result=spawnSync('pnpm',['exec','wrangler','secret','bulk','--name',worker,'--config','wrangler.jsonc'],{cwd:root,input:JSON.stringify({RESEARCH_PASSWORD:config.password,RESEARCH_RUNNER_TOKEN:config.token}),encoding:'utf8',stdio:['pipe','pipe','pipe']});
  if(result.status!==0){console.error('비밀값 등록을 완료하지 못했습니다. Cloudflare 로그인 후 이 설정 명령을 다시 실행하세요. 생성된 설정은 비공개 폴더에 보관되어 있습니다.');process.exitCode=1;}
  else{

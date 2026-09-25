@@ -7,14 +7,15 @@ import {createHash,randomInt,randomUUID} from 'node:crypto';
 import {gzipSync,gunzipSync} from 'node:zlib';
 import {CARDS,createGame,applyAction} from '../../lib/game.ts';
 import {actor} from '../../lib/practice-ai.ts';
+import {TrainingRuntime} from './training-runtime.mjs';
 import {policyInput,decide,POLICY_VERSION} from '../../lib/research-policy.ts';
 
 export const defaultHome=join(homedir(),'.randomchess-research');
-export const rulesHash=createHash('sha256').update(['../../lib/game.ts','../../lib/practice-ai.ts','../../lib/research-policy.ts'].map(p=>readFileSync(new URL(p,import.meta.url))).join('\n')).digest('hex');
+export const rulesHash=createHash('sha256').update(['../../lib/game.ts','../../lib/practice-ai.ts','../../lib/research-policy.ts','../../lib/research-network.ts'].map(p=>readFileSync(new URL(p,import.meta.url))).join('\n')).digest('hex');
 export function openStore(directory){
  mkdirSync(directory,{recursive:true,mode:0o700});chmodSync(directory,0o700);
  const file=join(directory,'research.sqlite');const db=new DatabaseSync(file);chmodSync(file,0o600);
- db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL;
+ db.exec(`PRAGMA journal_mode=WAL; PRAGMA synchronous=FULL; PRAGMA busy_timeout=5000;
  CREATE TABLE IF NOT EXISTS lanes(lane INTEGER PRIMARY KEY, game_id TEXT NOT NULL, state TEXT NOT NULL);
  CREATE TABLE IF NOT EXISTS games(id TEXT PRIMARY KEY, white_card TEXT, black_card TEXT, started INTEGER, status TEXT, winner TEXT, rules TEXT);
  CREATE TABLE IF NOT EXISTS records(game_id TEXT, seq INTEGER, payload BLOB NOT NULL, summary TEXT NOT NULL, sent INTEGER NOT NULL DEFAULT 0, PRIMARY KEY(game_id,seq));
@@ -71,6 +72,7 @@ export async function main(){
   if(readFileSync(lock,'utf8')===previous)unlinkSync(lock);
  }
  try{writeFileSync(lock,identity,{flag:'wx',mode:0o600});}catch(e){db.close();throw e;}
+ const training=new TrainingRuntime(home,config,rulesHash);
  const lanes=Math.max(1,Math.min(8,Number(config.lanes)||2));
  let stopping=false,enabled=false,lastHeartbeat=0,lane=0;
  process.on('SIGTERM',()=>{stopping=true;});process.on('SIGINT',()=>{stopping=true;});
@@ -87,7 +89,7 @@ export async function main(){
  }
  try{while(!stopping){
   try{
-   if(Date.now()-lastHeartbeat>20000){const c=await request('runner/control',{runner:config.name??'research-collector'});enabled=!!c.enabled;lastHeartbeat=Date.now();}
+   if(Date.now()-lastHeartbeat>20000){const c=await request('runner/control',{runner:config.name??'research-collector',training:training.status()});enabled=!!c.enabled;lastHeartbeat=Date.now();training.manage(c,db);}
    await flush();
    if(!enabled){await delay(5000);continue;}
    if(db.prepare('SELECT COUNT(*) n FROM records WHERE sent=0').get().n)continue;
@@ -95,7 +97,7 @@ export async function main(){
    let state=row?JSON.parse(row.state):null;
    if(!state||state.status!=='running')state=newGame(db,lane);
    else if(state.rules!==rulesHash)block(db,lane,state,'rules_version_changed');
-   else {try{step(db,lane,state);}catch(e){
+   else {try{step(db,lane,state,(input,seed)=>training.choose(input,seed));}catch(e){
     // Stop and label an invalid policy game; never invent a move/result.
     if(e.message==='record_too_large')throw e;
     block(db,lane,state,'policy_or_rules_error: '+String(e.message??'unknown').slice(0,180));
@@ -108,7 +110,7 @@ export async function main(){
   }
  }
  await flush();
- }finally{db.close();if(existsSync(lock)&&readFileSync(lock,'utf8')===identity)unlinkSync(lock);}
+ }finally{training.stop();db.close();if(existsSync(lock)&&readFileSync(lock,'utf8')===identity)unlinkSync(lock);}
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url))main().catch(()=>{console.error('Collector could not start. Run research:setup and check private storage permissions.');process.exitCode=1;});
 export const unpack=payload=>JSON.parse(gunzipSync(payload).toString());

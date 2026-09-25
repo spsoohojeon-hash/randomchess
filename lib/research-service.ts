@@ -13,6 +13,8 @@ const schema=[
  'CREATE INDEX IF NOT EXISTS research_games_updated ON research_games(updated DESC)',
  'CREATE TABLE IF NOT EXISTS research_events (game_id TEXT NOT NULL, seq INTEGER NOT NULL, payload TEXT NOT NULL, PRIMARY KEY(game_id,seq))',
  'CREATE TABLE IF NOT EXISTS research_login_limits (bucket TEXT PRIMARY KEY, attempts INTEGER NOT NULL, expires INTEGER NOT NULL)',
+ 'CREATE TABLE IF NOT EXISTS research_training (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL DEFAULT 1, requested INTEGER NOT NULL DEFAULT 0, status TEXT, updated INTEGER)',
+ 'INSERT OR IGNORE INTO research_training(id) VALUES(1)',
 ];
 async function init(db:D1Database){await db.batch(schema.map(s=>db.prepare(s)));}
 async function read(req:Request,max=350_000){if(Number(req.headers.get('Content-Length'))>max)throw Error('size');const reader=req.body?.getReader();let size=0,text='';const decoder=new TextDecoder();if(reader)while(true){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>max){await reader.cancel();throw Error('size');}text+=decoder.decode(part.value,{stream:true});}text+=decoder.decode();return JSON.parse(text||'{}');}
@@ -50,8 +52,25 @@ export async function researchApi(env:ResearchEnv,req:Request,path:string):Promi
    await env.DB.prepare('UPDATE research_control SET enabled=? WHERE id=1').bind(input.enabled?1:0).run();return json({ok:true});
   }
   if(path==='runner/control'&&req.method==='POST'){
-   const input=await read(req,1000);await env.DB.prepare('UPDATE research_control SET heartbeat=?,runner=? WHERE id=1').bind(Date.now(),String(input.runner??'collector').slice(0,80)).run();
-   return json(await env.DB.prepare('SELECT enabled FROM research_control WHERE id=1').first());
+   const input=await read(req,5000);await env.DB.prepare('UPDATE research_control SET heartbeat=?,runner=? WHERE id=1').bind(Date.now(),String(input.runner??'collector').slice(0,80)).run();
+   if(input.training&&typeof input.training==='object'){
+    const source=input.training,report:Record<string,unknown>={};
+    if(!['waiting','loading','training','validating','ready','rejected','failed'].includes(source.state))return json({error:'잘못된 학습 상태입니다.'},400);
+    report.state=source.state;
+    for(const key of ['completedGames','trainGames','validationGames','testGames','examples','epoch','epochs','validationLoss','baselineLoss','testLoss','testValueLoss','trainLoss','processed','updated'])if(typeof source[key]==='number'&&Number.isFinite(source[key]))report[key]=source[key];
+    for(const key of ['activeModel','modelId','rules','reason'])if(typeof source[key]==='string')report[key]=source[key].slice(0,160);
+    await env.DB.prepare('UPDATE research_training SET status=?,updated=? WHERE id=1').bind(JSON.stringify(report),Date.now()).run();
+   }
+   const control=await env.DB.prepare('SELECT enabled FROM research_control WHERE id=1').first();
+   const training=await env.DB.prepare('SELECT enabled training_enabled, requested training_request FROM research_training WHERE id=1').first();
+   return json({...control,...training});
+  }
+  if(path==='training/control'&&req.method==='POST'){
+   const input=await read(req,1000);
+   if(typeof input.enabled==='boolean')await env.DB.prepare('UPDATE research_training SET enabled=? WHERE id=1').bind(input.enabled?1:0).run();
+   else if(input.trainNow===true)await env.DB.prepare('UPDATE research_training SET requested=requested+1 WHERE id=1').run();
+   else return json({error:'잘못된 학습 설정입니다.'},400);
+   return json({ok:true});
   }
   if(path==='runner/event'&&req.method==='POST'){
    const p=await read(req),g=p.game;
@@ -71,7 +90,8 @@ export async function researchApi(env:ResearchEnv,req:Request,path:string):Promi
    const ranking=await env.DB.prepare("SELECT card,COUNT(*) games,SUM(win) wins,SUM(draw) draws FROM (SELECT white_card card,winner='w' win,winner='draw' draw FROM research_games WHERE status='finished' UNION ALL SELECT black_card card,winner='b' win,winner='draw' draw FROM research_games WHERE status='finished') GROUP BY card ORDER BY wins*1.0/COUNT(*) DESC").all();
    const matchups=await env.DB.prepare("SELECT white_card,black_card,COUNT(*) games,SUM(winner='w') white_wins,SUM(winner='b') black_wins,SUM(winner='draw') draws FROM research_games WHERE status='finished' GROUP BY white_card,black_card ORDER BY games DESC LIMIT 100").all();
    const games=await env.DB.prepare('SELECT * FROM research_games ORDER BY updated DESC LIMIT 30').all();
-   return json({control,totals,ranking:ranking.results,matchups:matchups.results,games:games.results,now:Date.now()});
+   const training=await env.DB.prepare('SELECT * FROM research_training WHERE id=1').first<{enabled:number;requested:number;status:string|null;updated:number|null}>();
+   return json({control,totals,ranking:ranking.results,matchups:matchups.results,games:games.results,training:{...training,status:training?.status?JSON.parse(training.status):null},now:Date.now()});
   }
   if(path==='games'&&req.method==='GET'){
    const before=Number(url.searchParams.get('before')??Number.MAX_SAFE_INTEGER);

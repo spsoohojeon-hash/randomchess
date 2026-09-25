@@ -96,3 +96,15 @@ test('large action counts do not force termination and blocked games are distinc
   state=block(db,0,state,'test_policy_error');assert.equal(state.status,'blocked');assert.equal(state.game.result,null);
  }finally{db.close();rmSync(dir,{recursive:true,force:true});}
 });
+
+
+test('training controls are owner-only and runner reports expose no arbitrary payload fields',async()=>{
+ const e=environment(),cookie=await login(e);
+ assert.equal((await call(e,'training/control',{body:{trainNow:true}})).status,401);
+ assert.equal((await call(e,'training/control',{bearer:token,body:{trainNow:true}})).status,401);
+ assert.equal((await call(e,'training/control',{cookie,body:{trainNow:true}})).status,200);
+ await call(e,'training/control',{cookie,body:{enabled:false}});
+ const control=await (await call(e,'runner/control',{bearer:token,body:{training:{state:'training',epoch:2,validationLoss:'bad',weights:[1,2],secret:'ignored'}}})).json();
+ assert.equal(control.training_request,1);assert.equal(control.training_enabled,0);
+ const stats=await (await call(e,'stats',{cookie})).json();assert.equal(stats.training.status.epoch,2);assert.equal(stats.training.status.validationLoss,undefined);assert.equal(stats.training.status.weights,undefined);assert.equal(stats.training.status.secret,undefined);e.DB.sql.close();
+});
