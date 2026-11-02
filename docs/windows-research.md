@@ -78,3 +78,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\scripts\research\windo
 ## 확인 범위
 
 Node 기반 게임·정보 비공개·학습 검사는 개발 환경에서 실행합니다. 실제 Windows 작업 스케줄러 실행, 사용자 Cloudflare 로그인·배포, 폰 실기기 접속은 해당 환경에서 별도로 확인해야 합니다.
+
+## NVIDIA GPU와 4판 병렬
+
+RTX 노트북에서 GPU 학습을 사용하려면 [GPU 설치 안내](gpu-research.md)를 따라 설정합니다.

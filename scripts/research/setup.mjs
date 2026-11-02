@@ -17,11 +17,11 @@ const prompt=createInterface({input:process.stdin,output:process.stdout});
 try{
  console.log('개인 AI 연구실 최초 설정. 이 터미널 화면을 공개하지 마세요.');
  const previous=existsSync(file)?JSON.parse(readFileSync(file,'utf8')):null;
- const url=await prompt.question('사이트 주소 [https://randomchess.sp-soohojeon.workers.dev]: ')||previous?.url||'https://randomchess.sp-soohojeon.workers.dev';
+ const url=(await prompt.question('사이트 주소 [https://randomchess.sp-soohojeon.workers.dev]: ')).trim()||previous?.url||'https://randomchess.sp-soohojeon.workers.dev';
  if(!/^https:\/\//.test(url))throw Error('HTTPS address required');
- const worker=await prompt.question('Cloudflare Worker 이름 [randomchess]: ')||'randomchess';
+ const worker=(await prompt.question('Cloudflare Worker 이름 [randomchess]: ')).trim()||'randomchess';
  if(!/^[a-zA-Z0-9_-]+$/.test(worker))throw Error('Invalid worker name');
- const config=previous??{token:randomBytes(32).toString('hex'),password:randomBytes(18).toString('base64url'),lanes:2,trainingEveryGames:100,trainingEpochs:5,trainingMaxExamples:12000};
+ const config=previous??{token:randomBytes(32).toString('hex'),password:randomBytes(18).toString('base64url'),lanes:4,trainingEveryGames:100,trainingEpochs:5,trainingMaxExamples:12000};
  if(process.env.RESEARCH_PASSWORD_FILE){
   const selected=readFileSync(process.env.RESEARCH_PASSWORD_FILE,'utf8').replace(/\r?\n$/,'');
   if(selected.length<8)throw Error('연구실 비밀번호는 8자 이상이어야 합니다.');

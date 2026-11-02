@@ -57,8 +57,8 @@ export async function researchApi(env:ResearchEnv,req:Request,path:string):Promi
     const source=input.training,report:Record<string,unknown>={};
     if(!['waiting','loading','training','validating','ready','rejected','failed'].includes(source.state))return json({error:'잘못된 학습 상태입니다.'},400);
     report.state=source.state;
-    for(const key of ['completedGames','trainGames','validationGames','testGames','examples','epoch','epochs','validationLoss','baselineLoss','testLoss','testValueLoss','trainLoss','processed','updated'])if(typeof source[key]==='number'&&Number.isFinite(source[key]))report[key]=source[key];
-    for(const key of ['activeModel','modelId','rules','reason'])if(typeof source[key]==='string')report[key]=source[key].slice(0,160);
+    for(const key of ['completedGames','trainGames','validationGames','testGames','examples','epoch','epochs','validationLoss','baselineLoss','testLoss','testValueLoss','trainLoss','processed','updated','workers','busyWorkers'])if(typeof source[key]==='number'&&Number.isFinite(source[key]))report[key]=source[key];
+    for(const key of ['activeModel','modelId','rules','reason','backend','device'])if(typeof source[key]==='string')report[key]=source[key].slice(0,160);
     await env.DB.prepare('UPDATE research_training SET status=?,updated=? WHERE id=1').bind(JSON.stringify(report),Date.now()).run();
    }
    const control=await env.DB.prepare('SELECT enabled FROM research_control WHERE id=1').first();
@@ -107,3 +107,4 @@ export async function researchApi(env:ResearchEnv,req:Request,path:string):Promi
   return json({error:'찾을 수 없습니다.'},404);
  }catch{return json({error:'저장소 요청을 처리하지 못했습니다. 저장 공간과 설정을 확인해 주세요.'},503);}
 }
+

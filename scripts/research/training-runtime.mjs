@@ -22,8 +22,9 @@ export class TrainingRuntime{
   this.control.request=Number(server.training_request??0);
   const path=join(this.home,'training-control.json'),temp=path+'.tmp';writeFileSync(temp,JSON.stringify(this.control),{mode:0o600});renameSync(temp,path);
   const command=fileURLToPath(new URL('./train.mjs',import.meta.url));
-  this.child=spawn(process.execPath,[command],{env:{...process.env,RESEARCH_HOME:this.home,RESEARCH_TRAIN_EPOCHS:String(this.config.trainingEpochs??5),RESEARCH_TRAIN_EXAMPLES:String(this.config.trainingMaxExamples??12000)},stdio:'ignore'});
+  this.child=spawn(process.execPath,[command],{env:{...process.env,RESEARCH_HOME:this.home,RESEARCH_TRAIN_BACKEND:this.config.trainingBackend??'cpu',RESEARCH_PYTHON:this.config.python??'python',RESEARCH_TRAIN_EPOCHS:String(this.config.trainingEpochs??5),RESEARCH_TRAIN_EXAMPLES:String(this.config.trainingMaxExamples??12000)},stdio:'ignore'});
   const finish=()=>{this.child=null;this.refresh();};this.child.once('error',finish);this.child.once('exit',finish);
  }
  stop(){this.child?.kill('SIGTERM');}
 }
+

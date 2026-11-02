@@ -7,6 +7,8 @@ import {createHash,randomInt,randomUUID} from 'node:crypto';
 import {gzipSync,gunzipSync} from 'node:zlib';
 import {CARDS,createGame,applyAction} from '../../lib/game.ts';
 import {actor} from '../../lib/practice-ai.ts';
+import {SearchPool} from './search-pool.mjs';
+import {serialize} from '../../lib/research-network.ts';
 import {TrainingRuntime} from './training-runtime.mjs';
 import {policyInput,decide,POLICY_VERSION} from '../../lib/research-policy.ts';
 
@@ -42,8 +44,8 @@ export function newGame(db,lane){
 }
 // One transaction per action, no move/repetition cut-off. Memory usage does not
 // grow with game length; records stream to SQLite and the private API.
-export function step(db,lane,state,choose=decide){
- const side=actor(state.game),input=policyInput(state.game,side),seed=randomInt(0x100000000);
+export function step(db,lane,state,choose=decide,decisionSeed){
+ const side=actor(state.game),input=policyInput(state.game,side),seed=decisionSeed??randomInt(0x100000000);
  const before=state.game,analysis=choose(input,seed);
  if(!analysis.action)throw Error('no_policy_action');
  const next=applyAction(before,side,analysis.action);
@@ -73,7 +75,9 @@ export async function main(){
  }
  try{writeFileSync(lock,identity,{flag:'wx',mode:0o600});}catch(e){db.close();throw e;}
  const training=new TrainingRuntime(home,config,rulesHash);
- const lanes=Math.max(1,Math.min(8,Number(config.lanes)||2));
+ const lanes=Math.max(1,Math.min(8,Math.floor(Number(config.lanes)||4)));
+ const pool=new SearchPool(lanes),pending=new Set();
+ let modelId=null,network=null;
  let stopping=false,enabled=false,lastHeartbeat=0,lane=0;
  process.on('SIGTERM',()=>{stopping=true;});process.on('SIGINT',()=>{stopping=true;});
  const request=async(path,body)=>{
@@ -89,19 +93,30 @@ export async function main(){
  }
  try{while(!stopping){
   try{
-   if(Date.now()-lastHeartbeat>20000){const c=await request('runner/control',{runner:config.name??'research-collector',training:training.status()});enabled=!!c.enabled;lastHeartbeat=Date.now();training.manage(c,db);}
+   if(Date.now()-lastHeartbeat>20000){const c=await request('runner/control',{runner:config.name??'research-collector',training:{...training.status(),workers:lanes,busyWorkers:pool.busy}});enabled=!!c.enabled;lastHeartbeat=Date.now();training.manage(c,db);}
    await flush();
    if(!enabled){await delay(5000);continue;}
    if(db.prepare('SELECT COUNT(*) n FROM records WHERE sent=0').get().n)continue;
+   let found=false;for(let i=0;i<lanes;i++){lane=(lane+1)%lanes;if(!pending.has(lane)){found=true;break;}}
+   if(!found){await delay(50);continue;}
    const row=db.prepare('SELECT state FROM lanes WHERE lane=?').get(lane);
    let state=row?JSON.parse(row.state):null;
    if(!state||state.status!=='running')state=newGame(db,lane);
    else if(state.rules!==rulesHash)block(db,lane,state,'rules_version_changed');
-   else {try{step(db,lane,state,(input,seed)=>training.choose(input,seed));}catch(e){
-    // Stop and label an invalid policy game; never invent a move/result.
-    if(e.message==='record_too_large')throw e;
-    block(db,lane,state,'policy_or_rules_error: '+String(e.message??'unknown').slice(0,180));
-   }}
+   else {
+    const slot=lane,current=state,side=actor(current.game);
+    const input=policyInput(current.game,side),seed=randomInt(0x100000000);
+    if(modelId!==(training.active?.id??null)){modelId=training.active?.id??null;network=training.active?serialize(training.active.network):null;}
+    pending.add(slot);
+    pool.run({input,seed,network,id:modelId}).then(analysis=>{
+     if(stopping)return;
+     // The main thread alone validates and commits one decision per lane.
+     step(db,slot,current,()=>analysis,seed);
+    }).catch(()=>{
+     if(stopping)return;
+     try{block(db,slot,current,'parallel_search_or_commit_failed');}catch{enabled=false;}
+    }).finally(()=>pending.delete(slot));
+   }
    lane=(lane+1)%lanes;
   }catch{
    // Keep credentials, cards, outcomes and stack traces out of service logs.
@@ -110,7 +125,8 @@ export async function main(){
   }
  }
  await flush();
- }finally{training.stop();db.close();if(existsSync(lock)&&readFileSync(lock,'utf8')===identity)unlinkSync(lock);}
+ }finally{stopping=true;await pool.stop();training.stop();db.close();if(existsSync(lock)&&readFileSync(lock,'utf8')===identity)unlinkSync(lock);}
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url))main().catch(()=>{console.error('Collector could not start. Run research:setup and check private storage permissions.');process.exitCode=1;});
 export const unpack=payload=>JSON.parse(gunzipSync(payload).toString());
+
