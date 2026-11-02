@@ -1,3 +1,4 @@
+import {monitorSchema} from './research-monitor.ts';
 // This API deliberately fails closed until BOTH Cloudflare secrets are set.
 export type ResearchEnv={DB:D1Database;RESEARCH_PASSWORD?:string;RESEARCH_RUNNER_TOKEN?:string};
 const headers={'Cache-Control':'private, no-store, max-age=0','X-Content-Type-Options':'nosniff','X-Robots-Tag':'noindex, nofollow','Vary':'Cookie, Authorization'};
@@ -7,6 +8,7 @@ async function digest(s:string){return new Uint8Array(await crypto.subtle.digest
 async function equal(a:string,b:string){const x=await digest(a),y=await digest(b);let n=0;for(let i=0;i<x.length;i++)n|=x[i]^y[i];return n===0;}
 async function sign(value:string,secret:string){const key=await crypto.subtle.importKey('raw',encode.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);return Array.from(new Uint8Array(await crypto.subtle.sign('HMAC',key,encode.encode(value))),n=>n.toString(16).padStart(2,'0')).join('');}
 const schema=[
+ ...monitorSchema,
  'CREATE TABLE IF NOT EXISTS research_control (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL DEFAULT 0, heartbeat INTEGER, runner TEXT)',
  'INSERT OR IGNORE INTO research_control(id) VALUES(1)',
  'CREATE TABLE IF NOT EXISTS research_games (id TEXT PRIMARY KEY, white_card TEXT NOT NULL, black_card TEXT NOT NULL, started INTEGER NOT NULL, updated INTEGER NOT NULL, seq INTEGER NOT NULL DEFAULT -1, status TEXT NOT NULL, winner TEXT, reason TEXT, rules TEXT NOT NULL, board TEXT NOT NULL, ply INTEGER NOT NULL DEFAULT 0, approximate INTEGER NOT NULL DEFAULT 0)',
@@ -91,7 +93,8 @@ export async function researchApi(env:ResearchEnv,req:Request,path:string):Promi
    const matchups=await env.DB.prepare("SELECT white_card,black_card,COUNT(*) games,SUM(winner='w') white_wins,SUM(winner='b') black_wins,SUM(winner='draw') draws FROM research_games WHERE status='finished' GROUP BY white_card,black_card ORDER BY games DESC LIMIT 100").all();
    const games=await env.DB.prepare('SELECT * FROM research_games ORDER BY updated DESC LIMIT 30').all();
    const training=await env.DB.prepare('SELECT * FROM research_training WHERE id=1').first<{enabled:number;requested:number;status:string|null;updated:number|null}>();
-   return json({control,totals,ranking:ranking.results,matchups:matchups.results,games:games.results,training:{...training,status:training?.status?JSON.parse(training.status):null},now:Date.now()});
+   const monitor=await env.DB.prepare('SELECT checked,status FROM research_monitor WHERE id=1').first<{checked:number|null;status:string|null}>();
+   return json({monitor:monitor?.status?JSON.parse(monitor.status):null,control,totals,ranking:ranking.results,matchups:matchups.results,games:games.results,training:{...training,status:training?.status?JSON.parse(training.status):null},now:Date.now()});
   }
   if(path==='games'&&req.method==='GET'){
    const before=Number(url.searchParams.get('before')??Number.MAX_SAFE_INTEGER);

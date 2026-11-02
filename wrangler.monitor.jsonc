@@ -1,0 +1,14 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "randomchess-research-monitor",
+  "main": "./research-monitor-worker.ts",
+  "compatibility_date": "2026-05-15",
+  "workers_dev": false,
+  "preview_urls": false,
+  "triggers": { "crons": ["7 * * * *"] },
+  "d1_databases": [{
+    "binding": "DB",
+    "database_name": "randomchess-db",
+    "database_id": "6f040436-de89-4d6f-8755-eb3eaeafdeec"
+  }]
+}
