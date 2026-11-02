@@ -7,6 +7,9 @@ import {spawnSync} from 'node:child_process';
 import {createInterface} from 'node:readline/promises';
 process.umask(0o077);
 if(!process.stdin.isTTY||!process.stdout.isTTY)throw Error('Run setup in your private interactive terminal.');
+const pnpm=process.env.npm_execpath;
+if(!pnpm||!existsSync(pnpm))throw Error('Run this setup with pnpm research:setup.');
+const runPnpm=(args,options)=>spawnSync(process.execPath,[pnpm,...args],options);
 const home=process.env.RESEARCH_HOME??join(homedir(),'.randomchess-research');
 mkdirSync(home,{recursive:true,mode:0o700});
 const file=join(home,'config.json');
@@ -24,17 +27,22 @@ try{
   if(selected.length<8)throw Error('연구실 비밀번호는 8자 이상이어야 합니다.');
   config.password=selected;
  }
+ if(!process.env.RESEARCH_PASSWORD_FILE){
+  prompt.close();
+  const selected=await hiddenPassword('연구실 비밀번호 (8자 이상, Enter: 기존/자동 생성 유지): ');
+  if(selected){if(selected.length<8)throw Error('비밀번호는 8자 이상이어야 합니다.');config.password=selected;}
+ }
  if(typeof config.password!=='string'||config.password.length<8||typeof config.token!=='string'||config.token.length<32)throw Error('저장된 연구실 인증 설정이 올바르지 않습니다.');
  config.url=new URL(url).origin;
  writeFileSync(file,JSON.stringify(config,null,2),{mode:0o600});
  const root=fileURLToPath(new URL('../../',import.meta.url));
  console.log('최신 사이트를 빌드하고 선택한 Cloudflare Worker에 배포합니다.');
- const build=spawnSync('pnpm',['run','build'],{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']});
+ const build=runPnpm(['run','build'],{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']});
  if(build.status!==0)throw Error('사이트 빌드에 실패했습니다. pnpm build 결과를 확인한 뒤 다시 실행하세요.');
- const deploy=spawnSync('pnpm',['exec','wrangler','deploy','--config','dist/server/wrangler.json','--name',worker],{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']});
+ const deploy=runPnpm(['exec','wrangler','deploy','--config','dist/server/wrangler.json','--name',worker],{cwd:root,encoding:'utf8',stdio:['ignore','pipe','pipe']});
  if(deploy.status!==0)throw Error('Cloudflare 배포에 실패했습니다. pnpm exec wrangler login 후 다시 실행하세요.');
  console.log('Cloudflare에 두 비밀값을 등록합니다.');
- const result=spawnSync('pnpm',['exec','wrangler','secret','bulk','--name',worker,'--config','wrangler.jsonc'],{cwd:root,input:JSON.stringify({RESEARCH_PASSWORD:config.password,RESEARCH_RUNNER_TOKEN:config.token}),encoding:'utf8',stdio:['pipe','pipe','pipe']});
+ const result=runPnpm(['exec','wrangler','secret','bulk','--name',worker,'--config','wrangler.jsonc'],{cwd:root,input:JSON.stringify({RESEARCH_PASSWORD:config.password,RESEARCH_RUNNER_TOKEN:config.token}),encoding:'utf8',stdio:['pipe','pipe','pipe']});
  if(result.status!==0){console.error('비밀값 등록을 완료하지 못했습니다. Cloudflare 로그인 후 이 설정 명령을 다시 실행하세요. 생성된 설정은 비공개 폴더에 보관되어 있습니다.');process.exitCode=1;}
  else{
   console.log('\n연구실: '+config.url+'/research');
@@ -53,3 +61,13 @@ try{
   console.log('로그아웃 후에도 실행하려면 서버 관리자가 해당 사용자의 loginctl enable-linger 를 설정해야 합니다.');
  }
 }finally{prompt.close();}
+
+
+function hiddenPassword(label){
+ return new Promise((resolve,reject)=>{
+  let value='';process.stdout.write(label);const wasRaw=process.stdin.isRaw;
+  const done=(error)=>{process.stdin.off('data',onData);process.stdin.setRawMode(!!wasRaw);process.stdin.pause();process.stdout.write('\n');error?reject(error):resolve(value);};
+  const onData=chunk=>{for(const c of String(chunk)){if(c==='\r'||c==='\n'){done();return;}if(c==='\u0003'){done(Error('설정을 취소했습니다.'));return;}if(c==='\u007f'||c==='\b')value=value.slice(0,-1);else if(c>=' ')value+=c;}};
+  process.stdin.setRawMode(true);process.stdin.on('data',onData);process.stdin.resume();
+ });
+}
