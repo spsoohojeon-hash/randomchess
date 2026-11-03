@@ -53,3 +53,9 @@ next-env.d.ts
 *.sqlite-wal
 *.sqlite-shm
 training*.jsonl
+
+# Local Python GPU environment
+.venv/
+__pycache__/
+*.pyc
+

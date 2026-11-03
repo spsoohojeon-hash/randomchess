@@ -1,5 +1,6 @@
+import {runPython,sparse} from './gpu-runtime.mjs';
 import {DatabaseSync} from 'node:sqlite';
-import {readFileSync,writeFileSync,renameSync,mkdirSync,existsSync,unlinkSync} from 'node:fs';
+import {readFileSync,writeFileSync,renameSync,mkdirSync,existsSync,unlinkSync,openSync,closeSync,writeSync} from 'node:fs';
 import {join,resolve} from 'node:path';
 import {fileURLToPath} from 'node:url';
 import {createHash,randomUUID} from 'node:crypto';
@@ -39,9 +40,12 @@ export async function train(home=process.env.RESEARCH_HOME??defaultHome){
  const lock=join(home,'training.lock'),identity=JSON.stringify({pid:process.pid,id:randomUUID()});
  if(existsSync(lock)){const previous=readFileSync(lock,'utf8');let running=true;try{process.kill(JSON.parse(previous).pid,0);}catch(e){if(e.code==='ESRCH')running=false;}if(running)throw Error('training_already_running');if(readFileSync(lock,'utf8')===previous)unlinkSync(lock);}
  writeFileSync(lock,identity,{flag:'wx',mode:0o600});
+ const backend=process.env.RESEARCH_TRAIN_BACKEND??'cpu';
+ if(!['cpu','cuda'].includes(backend)){unlinkSync(lock);throw Error('invalid_backend');}
+ const gpuData=join(home,'gpu-observations.jsonl'),gpuJob=join(home,'gpu-job.json'),gpuOut=join(home,'gpu-result.json');
  const statusPath=join(home,'training-status.json'),checkpointPath=join(home,'training-checkpoint.json'),activePath=join(home,'active-model.json');
  const epochs=Math.max(1,Math.min(30,Number(process.env.RESEARCH_TRAIN_EPOCHS)||5)),limit=Math.max(1000,Math.min(50000,Number(process.env.RESEARCH_TRAIN_EXAMPLES)||12000));
- let status={state:'loading',updated:Date.now(),rules:rulesHash,epochs,epoch:0};
+ let status={backend,state:'loading',updated:Date.now(),rules:rulesHash,epochs,epoch:0};
  const report=extra=>{status={...status,...extra,updated:Date.now()};atomic(statusPath,status);};
  let db;
  try{
@@ -51,23 +55,37 @@ export async function train(home=process.env.RESEARCH_HOME??defaultHome){
   report({completedGames:dataset.completed,trainGames:dataset.games.train,validationGames:dataset.games.validation,testGames:dataset.games.test,examples:dataset.groups.train.length,minimumTrainGames:20,minimumValidationGames:5,minimumTestGames:5,minimumExamples:256});
   if(!eligible(dataset)){report({state:'waiting',reason:'not_enough_completed_games'});return status;}
   const active=read(activePath),incumbent=active?.rules===rulesHash?deserialize(active.network):null;
-  const saved=read(checkpointPath),resume=saved?.fingerprint===dataset.fingerprint&&saved?.epochs===epochs&&saved?.rules===rulesHash;
+  const saved=read(checkpointPath),resume=(saved?.backend??'cpu')===backend&&saved?.fingerprint===dataset.fingerprint&&saved?.epochs===epochs&&saved?.rules===rulesHash;
   let network=resume?deserialize(saved.network):incumbent?deserialize(serialize(incumbent)):createNetwork(seeded(8281));
   const opt=optimizer(network);
   if(resume&&saved.optimizer){opt.step=saved.optimizer.step;for(const type of ['m','v'])for(const key of Object.keys(opt[type])){const values=saved.optimizer[type][key];if(values.length!==opt[type][key].length||!values.every(Number.isFinite))throw Error('invalid_optimizer');opt[type][key].set(values);}}
   const mean=dataset.groups.train.reduce((n,p)=>n+inflate(p).value,0)/dataset.groups.train.length;
   const baseline=metrics(null,dataset.groups.validation,mean),incumbentMetrics=incumbent?metrics(incumbent,dataset.groups.validation):null;
   let best=resume?saved.best:serialize(network),bestMetrics=resume?saved.bestMetrics:{total:Infinity,policy:Infinity,value:Infinity,accuracy:0,positions:0};
+  if(backend==='cuda'){
+   await runPython(process.env.RESEARCH_PYTHON??'python',['--check']);
+   const fd=openSync(gpuData,'w',0o600);
+   try{for(const packed of dataset.groups.train){const e=example(inflate(packed));writeSync(fd,JSON.stringify({x:sparse(e.x),actions:e.actions.map(sparse),target:e.target,value:e.value})+'\n');}}finally{closeSync(fd);}
+  }
   const id=resume?saved.id:randomUUID(),random=seeded(3141);
   for(let epoch=resume?saved.epoch:0;epoch<epochs;epoch++){
    report({state:'training',epoch:epoch+1,baselineLoss:baseline.total,activeModel:active?.rules===rulesHash?active.id:null});
+   let epochLoss;
+   if(backend==='cuda'){
+    atomic(gpuJob,{network:serialize(network),data:gpuData,output:gpuOut,checkpoint:join(home,'gpu-optimizer.pt'),fingerprint:dataset.fingerprint,epoch:epoch+1});
+    await runPython(process.env.RESEARCH_PYTHON??'python',[gpuJob]);
+    const result=read(gpuOut);network=deserialize(result.network);epochLoss=result.loss;
+    report({device:String(result.device).slice(0,100)});
+   }else{
    const order=dataset.groups.train.map((_,i)=>i);for(let i=order.length-1;i>0;i--){const j=Math.floor(random()*(i+1));[order[i],order[j]]=[order[j],order[i]];}
    let trainLoss=0,batches=0;
    for(let i=0;i<order.length;i+=32){const batch=order.slice(i,i+32).map(j=>example(inflate(dataset.groups.train[j])));trainLoss+=trainBatch(network,batch,opt);batches++;if(batches%25===0)report({processed:Math.min(i+32,order.length),trainLoss:trainLoss/batches});}
-   report({state:'validating',trainLoss:trainLoss/batches});const validation=metrics(network,dataset.groups.validation);
+    epochLoss=trainLoss/batches;
+   }
+   report({state:'validating',trainLoss:epochLoss});const validation=metrics(network,dataset.groups.validation);
    if(validation.total<bestMetrics.total){best=serialize(network);bestMetrics=validation;}
    const encodedOptimizer={step:opt.step,m:Object.fromEntries(Object.entries(opt.m).map(([k,v])=>[k,Array.from(v)])),v:Object.fromEntries(Object.entries(opt.v).map(([k,v])=>[k,Array.from(v)]))};
-   atomic(checkpointPath,{rules:rulesHash,fingerprint:dataset.fingerprint,id,epochs,epoch:epoch+1,network:serialize(network),optimizer:encodedOptimizer,best,bestMetrics});
+   atomic(checkpointPath,{backend,rules:rulesHash,fingerprint:dataset.fingerprint,id,epochs,epoch:epoch+1,network:serialize(network),optimizer:encodedOptimizer,best,bestMetrics});
    report({validationLoss:validation.total,validationValueLoss:validation.value});
   }
   // Test results are reported AFTER model selection and never decide promotion.
@@ -75,6 +93,7 @@ export async function train(home=process.env.RESEARCH_HOME??defaultHome){
   const model={schema:1,id,rules:rulesHash,created:Date.now(),dataset:dataset.fingerprint,network:best,validation:bestMetrics,test:testMetrics,baseline,incumbent:incumbentMetrics,accepted};
   atomic(join(home,'models',id+'.json'),model);if(accepted)atomic(activePath,model);
   report({state:accepted?'ready':'rejected',modelId:id,activeModel:accepted?id:active?.rules===rulesHash?active.id:null,validationLoss:bestMetrics.total,baselineLoss:baseline.total,testLoss:testMetrics.total,testValueLoss:testMetrics.value,accepted});return status;
- }catch{report({state:'failed',reason:'training_failed_check_private_storage'});throw Error('training_failed');}finally{db?.close();if(existsSync(lock)&&readFileSync(lock,'utf8')===identity)unlinkSync(lock);}
+ }catch{report({state:'failed',reason:backend==='cuda'?'gpu_training_failed_check_cuda':'training_failed_check_private_storage'});throw Error('training_failed');}finally{for(const path of [gpuData,gpuJob,gpuOut]){try{unlinkSync(path);}catch{}}db?.close();if(existsSync(lock)&&readFileSync(lock,'utf8')===identity)unlinkSync(lock);}
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url))train().then(()=>console.log('Private training job finished. See the protected research dashboard.')).catch(()=>{console.error('Private training failed. Check private storage and configuration.');process.exitCode=1;});
+
