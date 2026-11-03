@@ -38,10 +38,13 @@ export async function checkResearch(env:MonitorEnv,now=Date.now(),send:typeof fe
  // A missing research schema is a deployment error; fail visibly in cron logs.
  const control=await env.DB.prepare('SELECT enabled,heartbeat FROM research_control WHERE id=1').first<{enabled:number;heartbeat:number|null}>();
  if(!control)throw Error('research_not_initialized');
- const totals=await env.DB.prepare("SELECT MAX(updated) lastEvent,COALESCE(SUM(status='blocked'),0) blocked FROM research_games").first<{lastEvent:number|null;blocked:number}>();
- const training=await env.DB.prepare('SELECT status FROM research_training WHERE id=1').first<{status:string|null}>();
+ let snapshot:any=null;
+ const table=await env.DB.prepare("SELECT name FROM sqlite_master WHERE type='table' AND name='research_snapshot'").first();
+ if(table){const row=await env.DB.prepare('SELECT payload,updated FROM research_snapshot WHERE id=1').first<{payload:string;updated:number}>();if(row)snapshot={...JSON.parse(row.payload),received:row.updated};}
+ const totals=snapshot?null:await env.DB.prepare("SELECT MAX(updated) lastEvent,COALESCE(SUM(status='blocked'),0) blocked FROM research_games").first<{lastEvent:number|null;blocked:number}>();
+ const training=snapshot?null:await env.DB.prepare('SELECT status FROM research_training WHERE id=1').first<{status:string|null}>();
  const old=previous?.status?JSON.parse(previous.status):null;
- const report=assess({enabled:!!control.enabled,heartbeat:control.heartbeat,lastEvent:totals?.lastEvent??null,blocked:totals?.blocked??0,training:training?.status?JSON.parse(training.status):null},now,old);
+ const report=assess({enabled:!!control.enabled,heartbeat:snapshot?.received??control.heartbeat,lastEvent:snapshot?snapshot.lastEvent:totals?.lastEvent??null,blocked:snapshot?snapshot.totals.blocked:totals?.blocked??0,training:snapshot?snapshot.training:training?.status?JSON.parse(training.status):null},now,old);
  // Include the blocked total only while it is an issue. Identical outages notify once.
  const key=report.issues.length?report.issues.map(i=>i==='games_blocked'?i+':'+report.blocked:i).join(','):report.state;
  let delivered=previous?.delivered??null;

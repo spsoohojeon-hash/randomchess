@@ -1,3 +1,4 @@
+import {snapshot} from './snapshot.mjs';
 import {DatabaseSync} from 'node:sqlite';
 import {mkdirSync,readFileSync,chmodSync,existsSync,writeFileSync,unlinkSync} from 'node:fs';
 import {homedir} from 'node:os';
@@ -89,25 +90,24 @@ export async function main(){
  const lanes=Math.max(1,Math.min(8,Math.floor(Number(config.lanes)||4)));
  const pool=new SearchPool(lanes),pending=new Set();
  let modelId=null,network=null;
- let stopping=false,enabled=false,lastHeartbeat=0,lane=0;
+ let stopping=false,enabled=false,lastHeartbeat=0,lane=0,syncPromise=null;
  process.on('SIGTERM',()=>{stopping=true;});process.on('SIGINT',()=>{stopping=true;});
  const request=async(path,body)=>{
   const response=await fetch(endpoint+path,{method:'POST',redirect:'error',signal:AbortSignal.timeout(20000),headers:{Authorization:'Bearer '+config.token,'Content-Type':'application/json'},body:JSON.stringify(body)});
   if(!response.ok)throw Error('remote_'+response.status);return response.json();
  };
- async function flush(){
-  // Unacknowledged events survive process restarts. No public artifacts/logs.
-  for(const row of db.prepare('SELECT * FROM records WHERE sent=0 ORDER BY rowid LIMIT 100').all()){
-   await request('runner/event',{game:JSON.parse(row.summary),seq:row.seq,payload:Buffer.from(row.payload).toString('base64')});
-   db.prepare('UPDATE records SET sent=1 WHERE game_id=? AND seq=?').run(row.game_id,row.seq);
-  }
+ async function synchronize(){
+  try{
+   const data=snapshot(db,{...training.status(),workers:lanes,busyWorkers:pool.busy});
+   const c=await request('runner/snapshot',data);
+   if(stopping)return;
+   enabled=!!c.enabled;training.manage(c,db);
+  }catch{console.error('Summary sync unavailable. Local games continue; dashboard may be stale.');}
  }
  try{while(!stopping){
   try{
-   if(Date.now()-lastHeartbeat>20000){const c=await request('runner/control',{runner:config.name??'research-collector',training:{...training.status(),workers:lanes,busyWorkers:pool.busy}});enabled=!!c.enabled;lastHeartbeat=Date.now();training.manage(c,db);}
-   await flush();
-   if(!enabled){await delay(5000);continue;}
-   if(db.prepare('SELECT COUNT(*) n FROM records WHERE sent=0').get().n)continue;
+   if(!syncPromise&&Date.now()-lastHeartbeat>=60000){lastHeartbeat=Date.now();syncPromise=synchronize().finally(()=>{syncPromise=null;});}
+   if(!enabled){await delay(1000);continue;}
    let found=false;for(let i=0;i<lanes;i++){lane=(lane+1)%lanes;if(!pending.has(lane)){found=true;break;}}
    if(!found){await delay(50);continue;}
    const row=db.prepare('SELECT state FROM lanes WHERE lane=?').get(lane);
@@ -136,8 +136,8 @@ export async function main(){
    enabled=false;lastHeartbeat=0;await delay(30000);
   }
  }
- await flush();
- }finally{stopping=true;await pool.stop();training.stop();db.close();if(existsSync(lock)&&readFileSync(lock,'utf8')===identity)unlinkSync(lock);}
+ if(syncPromise)await syncPromise;
+ }finally{stopping=true;if(syncPromise)await syncPromise;await pool.stop();training.stop();db.close();if(existsSync(lock)&&readFileSync(lock,'utf8')===identity)unlinkSync(lock);}
 }
 if(process.argv[1]&&resolve(process.argv[1])===fileURLToPath(import.meta.url))main().catch(()=>{console.error('Collector could not start. Run research:setup and check private storage permissions.');process.exitCode=1;});
 export const unpack=payload=>JSON.parse(gunzipSync(payload).toString());

@@ -127,3 +127,24 @@ test('training controls are owner-only and runner reports expose no arbitrary pa
  const stats=await (await call(e,'stats',{cookie})).json();assert.equal(stats.training.status.epoch,2);assert.equal(stats.training.status.validationLoss,undefined);assert.equal(stats.training.status.weights,undefined);assert.equal(stats.training.status.secret,undefined);e.DB.sql.close();
 });
 
+
+test('summary sync is runner-only, replaces totals without duplication and strips arbitrary payloads',async()=>{
+ const e=environment(),cookie=await login(e);
+ const dir=mkdtempSync(join(tmpdir(),'summary-test-')),db=openStore(dir);
+ try{
+  const {snapshot}=await import('../scripts/research/snapshot.mjs');
+  newGame(db,0);const data=snapshot(db,{state:'waiting',workers:4,weights:['private']});
+  assert.equal('referee' in data,false);assert.equal('payload' in data,false);
+  assert.equal((await call(e,'runner/snapshot',{cookie,body:data})).status,401);
+  assert.equal((await call(e,'runner/snapshot',{bearer:token,body:data})).status,200);
+  let stats=await(await call(e,'stats',{cookie})).json();assert.equal(stats.storage,'local-summary');assert.equal(stats.totals.games,1);assert.equal(stats.training.status.weights,undefined);
+  assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM research_events').get().n,0);
+  assert.equal(e.DB.sql.prepare('SELECT COUNT(*) n FROM research_games').get().n,0);
+  await call(e,'runner/snapshot',{bearer:token,body:{...data,totals:{games:999}}});
+  stats=await(await call(e,'stats',{cookie})).json();assert.equal(stats.totals.games,1,'rapid requests cannot rewrite snapshot');
+  e.DB.sql.exec('UPDATE research_snapshot SET updated=0');
+  await call(e,'runner/snapshot',{bearer:token,body:data});
+  stats=await(await call(e,'stats',{cookie})).json();assert.equal(stats.totals.games,1,'snapshot replacement never accumulates duplicate totals');
+  assert.equal((await call(e,'stats',{bearer:token})).status,401);
+ }finally{db.close();rmSync(dir,{recursive:true,force:true});e.DB.sql.close();}
+});

@@ -1,3 +1,4 @@
+import {cleanSnapshot} from './research-snapshot.ts';
 import {monitorSchema} from './research-monitor.ts';
 // This API deliberately fails closed until BOTH Cloudflare secrets are set.
 export type ResearchEnv={DB:D1Database;RESEARCH_PASSWORD?:string;RESEARCH_RUNNER_TOKEN?:string};
@@ -8,6 +9,7 @@ async function digest(s:string){return new Uint8Array(await crypto.subtle.digest
 async function equal(a:string,b:string){const x=await digest(a),y=await digest(b);let n=0;for(let i=0;i<x.length;i++)n|=x[i]^y[i];return n===0;}
 async function sign(value:string,secret:string){const key=await crypto.subtle.importKey('raw',encode.encode(secret),{name:'HMAC',hash:'SHA-256'},false,['sign']);return Array.from(new Uint8Array(await crypto.subtle.sign('HMAC',key,encode.encode(value))),n=>n.toString(16).padStart(2,'0')).join('');}
 const schema=[
+ 'CREATE TABLE IF NOT EXISTS research_snapshot (id INTEGER PRIMARY KEY CHECK(id=1), payload TEXT NOT NULL, updated INTEGER NOT NULL)',
  ...monitorSchema,
  'CREATE TABLE IF NOT EXISTS research_control (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL DEFAULT 0, heartbeat INTEGER, runner TEXT)',
  'INSERT OR IGNORE INTO research_control(id) VALUES(1)',
@@ -18,7 +20,8 @@ const schema=[
  'CREATE TABLE IF NOT EXISTS research_training (id INTEGER PRIMARY KEY CHECK(id=1), enabled INTEGER NOT NULL DEFAULT 1, requested INTEGER NOT NULL DEFAULT 0, status TEXT, updated INTEGER)',
  'INSERT OR IGNORE INTO research_training(id) VALUES(1)',
 ];
-async function init(db:D1Database){await db.batch(schema.map(s=>db.prepare(s)));}
+const initialized=new WeakMap<D1Database,Promise<unknown>>();
+async function init(db:D1Database){let p=initialized.get(db);if(!p){p=db.batch(schema.map(s=>db.prepare(s))).catch(e=>{initialized.delete(db);throw e;});initialized.set(db,p);}await p;}
 async function read(req:Request,max=350_000){if(Number(req.headers.get('Content-Length'))>max)throw Error('size');const reader=req.body?.getReader();let size=0,text='';const decoder=new TextDecoder();if(reader)while(true){const part=await reader.read();if(part.done)break;size+=part.value.byteLength;if(size>max){await reader.cancel();throw Error('size');}text+=decoder.decode(part.value,{stream:true});}text+=decoder.decode();return JSON.parse(text||'{}');}
 const cookie=(value:string,age:number)=>`__Host-research=${value}; Path=/; Secure; HttpOnly; SameSite=Strict; Max-Age=${age}`;
 export async function researchApi(env:ResearchEnv,req:Request,path:string):Promise<Response>{
@@ -52,6 +55,14 @@ export async function researchApi(env:ResearchEnv,req:Request,path:string):Promi
   if(path==='control'&&req.method==='POST'){
    const input=await read(req,1000);if(typeof input.enabled!=='boolean')return json({error:'잘못된 설정입니다.'},400);
    await env.DB.prepare('UPDATE research_control SET enabled=? WHERE id=1').bind(input.enabled?1:0).run();return json({ok:true});
+  }
+  if(path==='runner/snapshot'&&req.method==='POST'){
+   const data=cleanSnapshot(await read(req,150000)),now=Date.now();
+   // One bounded row per minute, replacing the prior snapshot. No event backlog upload.
+   await env.DB.prepare('INSERT INTO research_snapshot(id,payload,updated) VALUES(1,?,?) ON CONFLICT(id) DO UPDATE SET payload=excluded.payload,updated=excluded.updated WHERE excluded.updated-research_snapshot.updated>=55000').bind(JSON.stringify(data),now).run();
+   const control=await env.DB.prepare('SELECT enabled FROM research_control WHERE id=1').first();
+   const training=await env.DB.prepare('SELECT enabled training_enabled,requested training_request FROM research_training WHERE id=1').first();
+   return json({...control,...training});
   }
   if(path==='runner/control'&&req.method==='POST'){
    const input=await read(req,5000);await env.DB.prepare('UPDATE research_control SET heartbeat=?,runner=? WHERE id=1').bind(Date.now(),String(input.runner??'collector').slice(0,80)).run();
@@ -87,6 +98,15 @@ export async function researchApi(env:ResearchEnv,req:Request,path:string):Promi
    ]);return json({ok:true});
   }
   if(path==='stats'&&req.method==='GET'){
+   const cached=await env.DB.prepare('SELECT payload,updated FROM research_snapshot WHERE id=1').first<{payload:string;updated:number}>();
+   if(cached){
+    const data=JSON.parse(cached.payload);
+    const control=await env.DB.prepare('SELECT enabled FROM research_control WHERE id=1').first();
+    const training=await env.DB.prepare('SELECT enabled,requested FROM research_training WHERE id=1').first();
+    const monitor=await env.DB.prepare('SELECT status FROM research_monitor WHERE id=1').first<{status:string|null}>();
+    return json({...data,storage:'local-summary',snapshotAt:cached.updated,control:{...control,heartbeat:cached.updated},training:{...training,status:data.training},monitor:monitor?.status?JSON.parse(monitor.status):null,now:Date.now()});
+   }
+
    const control=await env.DB.prepare('SELECT * FROM research_control WHERE id=1').first();
    const totals=await env.DB.prepare("SELECT COUNT(*) games, SUM(status='finished') finished, SUM(status='running') running, SUM(status='blocked') blocked, SUM(CASE WHEN seq>0 THEN seq ELSE 0 END) actions, SUM(status='finished' AND winner='w') white_wins, SUM(status='finished' AND winner='b') black_wins, SUM(status='finished' AND winner='draw') draws FROM research_games").first();
    const ranking=await env.DB.prepare("SELECT card,COUNT(*) games,SUM(win) wins,SUM(draw) draws FROM (SELECT white_card card,winner='w' win,winner='draw' draw FROM research_games WHERE status='finished' UNION ALL SELECT black_card card,winner='b' win,winner='draw' draw FROM research_games WHERE status='finished') GROUP BY card ORDER BY wins*1.0/COUNT(*) DESC").all();

@@ -37,3 +37,10 @@ test('missing notification destination is explicit and arbitrary webhook hosts r
  assert.equal(result.notification,'not_configured');assert.equal(called,false);
  await assert.rejects(deliver({...env,DISCORD_WEBHOOK_URL:'https://evil.test/api/webhooks/123/token'},'test',async()=>{called=true;}));assert.equal(called,false);env.DB.sql.close();
 });
+
+test('monitor uses current aggregate snapshot instead of obsolete legacy heartbeat',async()=>{
+ const env=fixture();delete env.DISCORD_WEBHOOK_URL;
+ env.DB.sql.exec('CREATE TABLE research_snapshot(id INTEGER,payload TEXT,updated INTEGER)');
+ env.DB.sql.prepare('INSERT INTO research_snapshot VALUES(1,?,?)').run(JSON.stringify({lastEvent:now,totals:{blocked:0},training:{state:'waiting'}}),now);
+ const result=await checkResearch(env,now);assert.deepEqual(result.issues,[]);assert.equal(result.heartbeat,now);env.DB.sql.close();
+});
