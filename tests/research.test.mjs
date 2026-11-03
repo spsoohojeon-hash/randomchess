@@ -97,11 +97,21 @@ test('collector checkpoints and raw events replay, finished-only export never in
   const lines=readFileSync(join(dir,'training.jsonl'),'utf8').trim().split('\n').map(JSON.parse);assert.equal(lines.length,1);assert.equal(lines[0].value,1);assert(!('referee' in lines[0]));assert.equal(lines[0].features.view.abilities.b.id,'hidden');
  }finally{db.close();rmSync(dir,{recursive:true,force:true});}
 });
-test('large action counts do not force termination and blocked games are distinct from losses',()=>{
+test('research draws at 600 actions, resumes over-limit games, and keeps errors separate',()=>{
  const dir=mkdtempSync(join(tmpdir(),'research-test-')),db=openStore(dir);
- try{let state=newGame(db,0);state.game=createGame('nothing','burrow');state.seq=50000;
-  state=step(db,0,state,()=>({action:{type:'move',from:indexOf('e2'),to:indexOf('e4')},score:0,incomplete:true}));assert.equal(state.seq,50001);assert.equal(state.status,'running');
-  state=block(db,0,state,'test_policy_error');assert.equal(state.status,'blocked');assert.equal(state.game.result,null);
+ try{
+  let state=newGame(db,0);state.game=createGame('nothing','burrow');state.seq=598;
+  state=step(db,0,state,()=>({action:{type:'move',from:indexOf('e2'),to:indexOf('e4')}}));assert.equal(state.status,'running');
+  state=step(db,0,state,()=>({action:{type:'move',from:indexOf('e7'),to:indexOf('e5')}}));assert.equal(state.status,'finished');assert.equal(state.game.result.winner,'draw');
+  const saved=JSON.parse(db.prepare('SELECT state FROM lanes WHERE lane=0').get().state);assert.equal(saved.game.result.winner,'draw');
+  assert.equal(db.prepare('SELECT winner FROM games WHERE id=?').get(state.id).winner,'draw');
+  let won=newGame(db,3);won.game=createGame('nothing','burrow');won.seq=599;
+  const whiteKing=won.game.board[indexOf('e1')],blackKing=won.game.board[indexOf('e8')];
+  won.game.board=Array(64).fill(null);won.game.board[indexOf('e1')]=whiteKing;won.game.board[indexOf('e2')]=blackKing;
+  won=step(db,3,won,()=>({action:{type:'move',from:indexOf('e1'),to:indexOf('e2')}}));assert.equal(won.game.result.winner,'w');
+  let old=newGame(db,1);old.game=createGame('nothing','burrow');old.seq=50000;
+  old=step(db,1,old,()=>{throw Error('must not search over-limit games');});assert.equal(old.status,'finished');assert.equal(old.game.result.winner,'draw');
+  let failed=newGame(db,2);failed.game=createGame('nothing','burrow');failed=block(db,2,failed,'test_policy_error');assert.equal(failed.status,'blocked');assert.equal(failed.game.result,null);
  }finally{db.close();rmSync(dir,{recursive:true,force:true});}
 });
 
@@ -116,3 +126,4 @@ test('training controls are owner-only and runner reports expose no arbitrary pa
  assert.equal(control.training_request,1);assert.equal(control.training_enabled,0);
  const stats=await (await call(e,'stats',{cookie})).json();assert.equal(stats.training.status.epoch,2);assert.equal(stats.training.status.validationLoss,undefined);assert.equal(stats.training.status.weights,undefined);assert.equal(stats.training.status.secret,undefined);e.DB.sql.close();
 });
+

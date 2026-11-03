@@ -12,6 +12,7 @@ import {serialize} from '../../lib/research-network.ts';
 import {TrainingRuntime} from './training-runtime.mjs';
 import {policyInput,decide,POLICY_VERSION} from '../../lib/research-policy.ts';
 
+export const MAX_RESEARCH_ACTIONS=600;
 export const defaultHome=join(homedir(),'.randomchess-research');
 export const rulesHash=createHash('sha256').update(['../../lib/game.ts','../../lib/practice-ai.ts','../../lib/research-policy.ts','../../lib/research-network.ts'].map(p=>readFileSync(new URL(p,import.meta.url))).join('\n')).digest('hex');
 export function openStore(directory){
@@ -39,18 +40,28 @@ export function newGame(db,lane){
  const pool=CARDS.map(c=>c.id),i=randomInt(pool.length),white=pool.splice(i,1)[0],black=pool[randomInt(pool.length)];
  const game=createGame(white,black,'all',true);
  const state={id:randomUUID(),white,black,started:Date.now(),seq:0,status:game.result?'finished':'running',game,rules:rulesHash,policy:POLICY_VERSION};
- persist(db,lane,state,{schema:1,type:'start',gameId:state.id,seq:0,at:Date.now(),rules:rulesHash,policy:POLICY_VERSION,settings:{difficulty:'hard',information:'private',maxActions:null,repeatLimit:null},initialCards:{w:white,b:black},referee:game});
+ persist(db,lane,state,{schema:1,type:'start',gameId:state.id,seq:0,at:Date.now(),rules:rulesHash,policy:POLICY_VERSION,settings:{difficulty:'hard',information:'private',maxActions:MAX_RESEARCH_ACTIONS,repeatLimit:null,adjudication:"action-limit-v1"},initialCards:{w:white,b:black},referee:game});
  return state;
 }
-// One transaction per action, no move/repetition cut-off. Memory usage does not
-// grow with game length; records stream to SQLite and the private API.
+// Research-only termination; ordinary matches retain their original rules.
+function limitedDraw(game){
+ const next=structuredClone(game);next.phase="over";next.result={winner:"draw",reason:"자동대국 600행동 제한 무승부"};next.pending=null;next.duel=null;next.drawOffer=null;delete next.extraMove;return next;
+}
+export function finishLimitedDraw(db,lane,state){
+ if(state.game.result||state.seq<MAX_RESEARCH_ACTIONS)return state;
+ const updated={...state,seq:state.seq+1,game:limitedDraw(state.game),status:"finished"};
+ persist(db,lane,updated,{schema:1,type:"adjudication",gameId:state.id,seq:updated.seq,at:Date.now(),reason:"action-limit-v1",referee:updated.game});return updated;
+}
 export function step(db,lane,state,choose=decide,decisionSeed){
+ if(state.seq>=MAX_RESEARCH_ACTIONS)return finishLimitedDraw(db,lane,state);
  const side=actor(state.game),input=policyInput(state.game,side),seed=decisionSeed??randomInt(0x100000000);
  const before=state.game,analysis=choose(input,seed);
  if(!analysis.action)throw Error('no_policy_action');
- const next=applyAction(before,side,analysis.action);
+ let next=applyAction(before,side,analysis.action);
+ const adjudicated=!next.result&&state.seq+1>=MAX_RESEARCH_ACTIONS;
+ if(adjudicated)next=limitedDraw(next);
  const updated={...state,seq:state.seq+1,game:next,status:next.result?'finished':'running'};
- persist(db,lane,updated,{schema:1,type:'action',gameId:state.id,seq:updated.seq,at:Date.now(),rules:rulesHash,policy:POLICY_VERSION,side,policySeed:seed,observation:input,action:analysis.action,analysis:{...analysis,line:undefined},beliefApproximate:true,referee:next});
+ persist(db,lane,updated,{schema:1,type:'action',gameId:state.id,seq:updated.seq,at:Date.now(),rules:rulesHash,policy:POLICY_VERSION,adjudication:adjudicated?'action-limit-v1':undefined,side,policySeed:seed,observation:input,action:analysis.action,analysis:{...analysis,line:undefined},beliefApproximate:true,referee:next});
  return updated;
 }
 export function block(db,lane,state,code){
@@ -102,6 +113,7 @@ export async function main(){
    const row=db.prepare('SELECT state FROM lanes WHERE lane=?').get(lane);
    let state=row?JSON.parse(row.state):null;
    if(!state||state.status!=='running')state=newGame(db,lane);
+   else if(state.seq>=MAX_RESEARCH_ACTIONS)finishLimitedDraw(db,lane,state);
    else if(state.rules!==rulesHash)block(db,lane,state,'rules_version_changed');
    else {
     const slot=lane,current=state,side=actor(current.game);
